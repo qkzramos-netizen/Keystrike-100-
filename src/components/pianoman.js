@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Image, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { recordGameResult, recordGuestGameResult } from '../achievements';
 import { auth } from '../firebase';
@@ -48,15 +48,26 @@ const SONGS = [
 const TEMPO = { easy: 0.8, normal: 1, hard: 1.2 };
 const DIFFICULTIES = ['easy', 'normal', 'hard'];
 const NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-const TRAVEL_SECONDS = 3.7;
-const NOTE_ANIMATION_SECONDS = 5;
+const NOTE_TRAVEL_SECONDS = 3.7;
+const GREAT_WINDOW = 0.12;
+const OK_WINDOW = 0.24;
 const HIT_TOLERANCE = 0.38;
 const LEAD_IN = 1;
 const COUNTDOWN_START = 3;
+const NOTE_WIDTH = 35;
 const NOTE_STAFF = require('../../public/assets/pmannotes.png');
 const PIANO_LOGO = require('../../public/assets/logo.png');
 const PAUSE_ICON = require('../../public/assets/newsettings.png');
 const BACK_ICON = require('../../public/assets/back.png');
+const SYNTH_SOURCES = {
+  C: require('../../public/assets/audio/pianoman_synth_C4.wav'),
+  D: require('../../public/assets/audio/pianoman_synth_D4.wav'),
+  E: require('../../public/assets/audio/pianoman_synth_E4.wav'),
+  F: require('../../public/assets/audio/pianoman_synth_F4.wav'),
+  G: require('../../public/assets/audio/pianoman_synth_G4.wav'),
+  A: require('../../public/assets/audio/pianoman_synth_A4.wav'),
+  B: require('../../public/assets/audio/pianoman_synth_B4.wav'),
+};
 const AnimatedPressableBase = Animated.createAnimatedComponent(Pressable);
 const ButtonSoundContext = createContext(null);
 
@@ -68,6 +79,16 @@ const NAVY_RAISED = '#0b1f66';
 const ACCENT = '#7fa8ff';
 const ACCENT_SOFT = 'rgba(127,168,255,0.22)';
 const ACCENT_LINE = 'rgba(127,168,255,0.55)';
+
+function getClockTime() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function getNoteTravelSeconds(difficulty) {
+  return NOTE_TRAVEL_SECONDS / TEMPO[difficulty];
+}
 
 
 function AnimatedPressable({ children, onPress, onPressIn, onPressOut, style, pressScale = 1.2, ...props }) {
@@ -122,6 +143,10 @@ function buildMelody(song, difficulty) {
     time += duration;
     return event;
   });
+}
+
+function getHitTime(entry, difficulty) {
+  return entry.delay + getNoteTravelSeconds(difficulty);
 }
 
 const DIFFICULTY_LABELS = { easy: 'Easy', normal: 'Medium', hard: 'Hard' };
@@ -717,14 +742,38 @@ function PianoMan({ onNavigate }) {
   const { width, height } = useWindowDimensions();
   // One shared player serves every UI button on this screen.
   const buttonSoundPlayer = useAudioPlayer(require('../../public/appsfx/mainsfx.mp3'));
-  const playButtonSound = () => {
+  const synthPlayerC = useAudioPlayer(SYNTH_SOURCES.C);
+  const synthPlayerD = useAudioPlayer(SYNTH_SOURCES.D);
+  const synthPlayerE = useAudioPlayer(SYNTH_SOURCES.E);
+  const synthPlayerF = useAudioPlayer(SYNTH_SOURCES.F);
+  const synthPlayerG = useAudioPlayer(SYNTH_SOURCES.G);
+  const synthPlayerA = useAudioPlayer(SYNTH_SOURCES.A);
+  const synthPlayerB = useAudioPlayer(SYNTH_SOURCES.B);
+  const synthPlayers = useMemo(() => ({
+    C: synthPlayerC,
+    D: synthPlayerD,
+    E: synthPlayerE,
+    F: synthPlayerF,
+    G: synthPlayerG,
+    A: synthPlayerA,
+    B: synthPlayerB,
+  }), [
+    synthPlayerC,
+    synthPlayerD,
+    synthPlayerE,
+    synthPlayerF,
+    synthPlayerG,
+    synthPlayerA,
+    synthPlayerB,
+  ]);
+  const playButtonSound = useCallback(() => {
     try {
       buttonSoundPlayer.seekTo(0);
       buttonSoundPlayer.play();
     } catch (soundError) {
       console.warn('Could not play button sound:', soundError);
     }
-  };
+  }, [buttonSoundPlayer]);
   const [selectedSong, setSelectedSong] = useState(null);
   const [difficulty, setDifficulty] = useState('normal');
   const [gameStarted, setGameStarted] = useState(false);
@@ -744,35 +793,189 @@ function PianoMan({ onNavigate }) {
   const [savePromptResult, setSavePromptResult] = useState(null);
   const [error, setError] = useState('');
   const processed = useRef(new Set());
+  const songRef = useRef(song);
+  const difficultyRef = useRef(difficulty);
   const startedAt = useRef(0);
   const pausedAt = useRef(0);
+  const isPlaying = useRef(false);
+  const isPaused = useRef(false);
+  const scoreRef = useRef(0);
+  const notesPressedRef = useRef(0);
   const resultSaved = useRef(false);
   const statsRef = useRef({ great: 0, ok: 0, meh: 0, miss: 0 });
   const comboRef = useRef({ current: 0, max: 0 });
   const boardShake = useRef(new Animated.Value(0)).current;
+  const judgementAnim = useRef(new Animated.Value(0)).current;
+  const hitFlashAnim = useRef(new Animated.Value(0)).current;
+  const comboScale = useRef(new Animated.Value(1)).current;
+  const highlightTimer = useRef(null);
+  const activeAnimations = useRef([]);
+  const synthPlayersRef = useRef(synthPlayers);
+  const synthTimers = useRef(new Set());
+  const activeSynthVoices = useRef(new Map());
+  const synthSession = useRef(0);
+  songRef.current = song;
+  difficultyRef.current = difficulty;
+  synthPlayersRef.current = synthPlayers;
 
-  // Shakes the note board left and right when a note is missed.
-  const shakeBoard = () => {
+  const clearSynthTimers = useCallback(() => {
+    synthTimers.current.forEach((timer) => clearTimeout(timer));
+    synthTimers.current.clear();
+  }, []);
+
+  const seekSynthToStart = useCallback((player) => {
+    try {
+      player.pause();
+      player.seekTo(0).catch((seekError) => {
+        console.warn('Could not reset Piano Man synth voice:', seekError);
+      });
+    } catch (playbackError) {
+      console.warn('Could not stop Piano Man synth voice:', playbackError);
+    }
+  }, []);
+
+  const stopSynth = useCallback(() => {
+    synthSession.current += 1;
+    clearSynthTimers();
+    activeSynthVoices.current.clear();
+    Object.values(synthPlayersRef.current).forEach(seekSynthToStart);
+  }, [clearSynthTimers, seekSynthToStart]);
+
+  const pauseSynth = useCallback(() => {
+    clearSynthTimers();
+    activeSynthVoices.current.forEach(({ player }) => {
+      try {
+        player.pause();
+      } catch (playbackError) {
+        console.warn('Could not pause Piano Man synth voice:', playbackError);
+      }
+    });
+  }, [clearSynthTimers]);
+
+  const scheduleSynthFromElapsed = useCallback((melody, level, currentElapsed) => {
+    clearSynthTimers();
+    const session = synthSession.current;
+    const schedule = (callback, delay) => {
+      let timer;
+      timer = setTimeout(() => {
+        synthTimers.current.delete(timer);
+        callback();
+      }, Math.max(0, delay));
+      synthTimers.current.add(timer);
+      return timer;
+    };
+    const stopVoice = (note, voice) => {
+      if (activeSynthVoices.current.get(note) !== voice) return;
+      activeSynthVoices.current.delete(note);
+      seekSynthToStart(voice.player);
+    };
+    const startVoice = (entry, endAt) => {
+      if (
+        session !== synthSession.current
+        || !isPlaying.current
+        || isPaused.current
+      ) return;
+      const elapsedNow = Math.max(0, (getClockTime() - startedAt.current) / 1000);
+      if (elapsedNow >= endAt) return;
+      const existingVoice = activeSynthVoices.current.get(entry.note);
+      if (existingVoice) stopVoice(entry.note, existingVoice);
+      const player = synthPlayersRef.current[entry.note];
+      try {
+        player.pause();
+        player.seekTo(0).catch((seekError) => {
+          console.warn('Could not rewind Piano Man synth voice:', seekError);
+        });
+        player.play();
+      } catch (playbackError) {
+        console.warn('Could not play Piano Man synth voice:', playbackError);
+        return;
+      }
+      const voice = { player, endAt, timer: null };
+      activeSynthVoices.current.set(entry.note, voice);
+      voice.timer = schedule(
+        () => stopVoice(entry.note, voice),
+        (endAt - elapsedNow) * 1000,
+      );
+    };
+
+    activeSynthVoices.current.forEach((voice, note) => {
+      if (voice.endAt <= currentElapsed) {
+        stopVoice(note, voice);
+        return;
+      }
+      try {
+        voice.player.play();
+        voice.timer = schedule(
+          () => stopVoice(note, voice),
+          (voice.endAt - currentElapsed) * 1000,
+        );
+      } catch (playbackError) {
+        console.warn('Could not resume Piano Man synth voice:', playbackError);
+      }
+    });
+
+    melody.forEach((entry) => {
+      const hitAt = getHitTime(entry, level);
+      const endAt = hitAt + entry.duration;
+      if (endAt <= currentElapsed) return;
+      if (hitAt <= currentElapsed) {
+        if (!activeSynthVoices.current.has(entry.note)) startVoice(entry, endAt);
+        return;
+      }
+      schedule(
+        () => startVoice(entry, endAt),
+        (hitAt - currentElapsed) * 1000,
+      );
+    });
+  }, [clearSynthTimers, seekSynthToStart]);
+
+  const shakeBoard = useCallback(() => {
     boardShake.stopAnimation();
     boardShake.setValue(0);
     Animated.sequence([
-      Animated.timing(boardShake, { toValue: -6, duration: 40, useNativeDriver: true }),
-      Animated.timing(boardShake, { toValue: 6, duration: 40, useNativeDriver: true }),
-      Animated.timing(boardShake, { toValue: -4, duration: 40, useNativeDriver: true }),
-      Animated.timing(boardShake, { toValue: 4, duration: 40, useNativeDriver: true }),
+      Animated.timing(boardShake, { toValue: -3, duration: 35, useNativeDriver: true }),
+      Animated.timing(boardShake, { toValue: 3, duration: 35, useNativeDriver: true }),
       Animated.spring(boardShake, { toValue: 0, speed: 24, bounciness: 3, useNativeDriver: true }),
     ]).start();
-  };
+  }, [boardShake]);
+
+  const showJudgement = useCallback((message) => {
+    judgementAnim.stopAnimation();
+    judgementAnim.setValue(0);
+    setFeedback(message);
+    const animation = Animated.timing(judgementAnim, {
+      toValue: 1,
+      duration: 850,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    activeAnimations.current.push(animation);
+    animation.start(({ finished }) => {
+      activeAnimations.current = activeAnimations.current.filter((item) => item !== animation);
+      if (finished) setFeedback('');
+    });
+  }, [judgementAnim]);
+
+  const flashHitLine = useCallback(() => {
+    hitFlashAnim.stopAnimation();
+    hitFlashAnim.setValue(0);
+    Animated.timing(hitFlashAnim, {
+      toValue: 1,
+      duration: 300,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [hitFlashAnim]);
 
   useEffect(() => {
     if (!playing || paused || !song.length) return undefined;
     const timer = setInterval(() => {
-      const currentElapsed = (Date.now() - startedAt.current) / 1000;
+      const currentElapsed = Math.max(0, (getClockTime() - startedAt.current) / 1000);
       setElapsed(currentElapsed);
       let missed = false;
       song.forEach((entry, index) => {
-        const hitAt = entry.delay + TRAVEL_SECONDS;
-        if (!processed.current.has(index) && currentElapsed > hitAt + HIT_TOLERANCE) {
+        const hitAt = getHitTime(entry, difficulty);
+        if (!processed.current.has(index) && currentElapsed >= hitAt + HIT_TOLERANCE) {
           processed.current.add(index);
           missed = true;
           statsRef.current.miss += 1;
@@ -782,57 +985,98 @@ function PianoMan({ onNavigate }) {
       if (missed) {
         setJudgementStats({ ...statsRef.current });
         setCombo(0);
-        setFeedback('MISS!');
+        showJudgement('MISS');
         shakeBoard();
       }
-      const songEnd = song[song.length - 1].delay + NOTE_ANIMATION_SECONDS;
-      if (currentElapsed > songEnd) {
+      const songEnd = getHitTime(song[song.length - 1], difficulty) + HIT_TOLERANCE;
+      const lastNoteEnd = getHitTime(song[song.length - 1], difficulty)
+        + song[song.length - 1].duration;
+      if (currentElapsed >= Math.max(songEnd, lastNoteEnd) && !resultSaved.current) {
+        resultSaved.current = true;
+        const finalStats = { ...statsRef.current };
+        const completedResults = {
+          title: selectedSong?.title || 'Piano Man',
+          difficulty,
+          score: scoreRef.current,
+          stats: finalStats,
+          totalNotes: song.length,
+          maxCombo: comboRef.current.max,
+          notesPressed: notesPressedRef.current,
+        };
+        const saveResult = async () => {
+          const result = {
+            score: completedResults.score,
+            notesPressed: completedResults.notesPressed,
+            songsCompleted: 1,
+          };
+          try {
+            if (auth.currentUser) {
+              await recordGameResult('pianoMan', result);
+            } else {
+              const guestResultId = await recordGuestGameResult('pianoMan', result);
+              setSavePromptResult({ ...result, guestResultId });
+            }
+          } catch (saveError) {
+            setError(saveError.message || 'Could not save this song result.');
+          }
+        };
+        isPlaying.current = false;
+        isPaused.current = false;
+        stopSynth();
+        setJudgementStats(finalStats);
+        setCombo(comboRef.current.current);
+        setMaxCombo(comboRef.current.max);
         setPlaying(false);
         setPaused(false);
         setFeedback('Song finished!');
-        setResults({
-          title: selectedSong?.title || 'Piano Man',
-          difficulty,
-          score,
-          stats: { ...statsRef.current },
-          totalNotes: song.length,
-          maxCombo: comboRef.current.max,
-          notesPressed,
-        });
+        setResults(completedResults);
+        saveResult();
       }
-    }, 50);
+    }, 1000 / 30);
     return () => clearInterval(timer);
-  }, [playing, paused, song, selectedSong, difficulty, score, notesPressed]);
+  }, [playing, paused, song, selectedSong, difficulty, showJudgement, shakeBoard, stopSynth]);
+
+  useEffect(() => () => {
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    activeAnimations.current.forEach((animation) => animation.stop());
+    activeAnimations.current = [];
+    boardShake.stopAnimation();
+    judgementAnim.stopAnimation();
+    hitFlashAnim.stopAnimation();
+    comboScale.stopAnimation();
+  }, [boardShake, comboScale, hitFlashAnim, judgementAnim]);
+
+  useEffect(() => () => {
+    synthSession.current += 1;
+    clearSynthTimers();
+    activeSynthVoices.current.clear();
+  }, [clearSynthTimers]);
 
   useEffect(() => {
-    if (playing || !song.length || resultSaved.current || elapsed < song[song.length - 1].delay + NOTE_ANIMATION_SECONDS) return;
-    resultSaved.current = true;
-    const result = { score, notesPressed, songsCompleted: 1 };
-    const saveResult = async () => {
-      try {
-        if (auth.currentUser) {
-          await recordGameResult('pianoMan', result);
-        } else {
-          const guestResultId = await recordGuestGameResult('pianoMan', result);
-          setSavePromptResult({ ...result, guestResultId });
-        }
-      } catch (saveError) {
-        setError(saveError.message || 'Could not save this song result.');
-      }
-    };
-    saveResult();
-  }, [playing, song, elapsed, score, notesPressed]);
+    Object.values(synthPlayers).forEach((player) => {
+      player.volume = 0.32;
+    });
+  }, [synthPlayers]);
 
   const startSong = (entry = selectedSong, level = difficulty) => {
     if (!entry) {
       setFeedback('Choose a song first.');
       return;
     }
+    stopSynth();
     const nextSong = buildMelody(entry, level);
     processed.current = new Set();
     resultSaved.current = false;
+    scoreRef.current = 0;
+    notesPressedRef.current = 0;
+    isPlaying.current = true;
+    isPaused.current = false;
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = null;
     setSelectedSong(entry);
     setDifficulty(level);
+    difficultyRef.current = level;
+    songRef.current = nextSong;
     setSong(nextSong);
     setElapsed(0);
     setScore(0);
@@ -843,10 +1087,12 @@ function PianoMan({ onNavigate }) {
     setCombo(0);
     setMaxCombo(0);
     setResults(null);
+    setSavePromptResult(null);
     setPaused(false);
     setError('');
     setFeedback(`Playing ${entry.title}`);
-    startedAt.current = Date.now();
+    startedAt.current = getClockTime();
+    scheduleSynthFromElapsed(nextSong, level, 0);
     setGameStarted(true);
     setPlaying(true);
   };
@@ -866,29 +1112,51 @@ function PianoMan({ onNavigate }) {
   }, [countdown]);
 
   const togglePause = () => {
-    if (!playing && !paused) return;
-    if (!paused) {
-      pausedAt.current = Date.now();
+    if (!isPlaying.current && !isPaused.current) return;
+    if (!isPaused.current) {
+      pausedAt.current = getClockTime();
+      isPaused.current = true;
+      pauseSynth();
       setPaused(true);
       return;
     }
-    startedAt.current += Date.now() - pausedAt.current;
+    const now = getClockTime();
+    startedAt.current += now - pausedAt.current;
+    isPaused.current = false;
+    scheduleSynthFromElapsed(
+      songRef.current,
+      difficultyRef.current,
+      Math.max(0, (now - startedAt.current) / 1000),
+    );
     setPaused(false);
   };
 
-  const handleKeyPress = (note) => {
-    if (!playing || paused) return;
+  const handleKeyPress = useCallback((note) => {
+    if (!isPlaying.current || isPaused.current || resultSaved.current) return;
+    const inputElapsed = Math.max(0, (getClockTime() - startedAt.current) / 1000);
+    const currentSong = songRef.current;
+    const currentDifficulty = difficultyRef.current;
     setHighlightedNote(note);
-    setNotesPressed((count) => count + 1);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => {
+      highlightTimer.current = null;
+      setHighlightedNote(null);
+    }, 160);
+    notesPressedRef.current += 1;
+    setNotesPressed(notesPressedRef.current);
     let closest = { index: -1, difference: Infinity };
-    song.forEach((entry, index) => {
+    currentSong.forEach((entry, index) => {
       if (entry.note !== note || processed.current.has(index)) return;
-      const difference = Math.abs(entry.delay + TRAVEL_SECONDS - elapsed);
+      const difference = Math.abs(getHitTime(entry, currentDifficulty) - inputElapsed);
       if (difference < closest.difference) closest = { index, difference };
     });
     if (closest.index >= 0 && closest.difference <= HIT_TOLERANCE) {
       processed.current.add(closest.index);
-      const quality = closest.difference <= 0.12 ? 'great' : closest.difference <= 0.24 ? 'ok' : 'meh';
+      const quality = closest.difference <= GREAT_WINDOW
+        ? 'great'
+        : closest.difference <= OK_WINDOW
+          ? 'ok'
+          : 'meh';
       const points = quality === 'great' ? 100 : quality === 'ok' ? 70 : 40;
       statsRef.current[quality] += 1;
       comboRef.current.current += 1;
@@ -896,34 +1164,77 @@ function PianoMan({ onNavigate }) {
       setJudgementStats({ ...statsRef.current });
       setCombo(comboRef.current.current);
       setMaxCombo(comboRef.current.max);
-      setScore((current) => current + points);
-      setFeedback(`${quality.toUpperCase()}! +${points} (${note})`);
+      scoreRef.current += points;
+      setScore(scoreRef.current);
+      showJudgement(`${quality.toUpperCase()}  +${points}`);
+      flashHitLine();
     } else {
-      setFeedback('NO NOTE');
+      showJudgement('NO NOTE');
     }
-    setTimeout(() => setHighlightedNote(null), 160);
-  };
+  }, [flashHitLine, showJudgement]);
+
+  useEffect(() => {
+    if (combo <= 0) {
+      comboScale.setValue(1);
+      return;
+    }
+    comboScale.stopAnimation();
+    comboScale.setValue(0.88);
+    Animated.spring(comboScale, {
+      toValue: 1,
+      speed: 20,
+      bounciness: 8,
+      useNativeDriver: true,
+    }).start();
+  }, [combo, comboScale]);
 
   const restart = () => {
     if (selectedSong) startSong(selectedSong, difficulty);
   };
 
   const changeSelection = () => {
+    isPlaying.current = false;
+    isPaused.current = false;
+    stopSynth();
     setPlaying(false);
     setPaused(false);
     setGameStarted(false);
     setCountdown(null);
     setResults(null);
     setSong([]);
+    songRef.current = [];
     setElapsed(0);
+    scoreRef.current = 0;
+    notesPressedRef.current = 0;
+    setScore(0);
+    setNotesPressed(0);
     setFeedback('');
+    setHighlightedNote(null);
+    setCombo(0);
+    setMaxCombo(0);
+    statsRef.current = { great: 0, ok: 0, meh: 0, miss: 0 };
+    comboRef.current = { current: 0, max: 0 };
+    setJudgementStats({ great: 0, ok: 0, meh: 0, miss: 0 });
     processed.current = new Set();
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = null;
+  };
+
+  const returnToMenu = () => {
+    isPlaying.current = false;
+    isPaused.current = false;
+    stopSynth();
+    onNavigate('minigame');
   };
 
   const hitLine = 80;
-  const boardWidth = Math.min(360, width - 32);
+  const boardWidth = Math.min(360, Math.max(280, width - 32));
   const logoWidth = Math.min(430, width);
   const keyboardHeight = Math.max(140, Math.min(220, height * 0.24));
+  const boardTop = Math.max(100, Math.min(height * 0.5 - 240, height - keyboardHeight - 265));
+  const travelSeconds = getNoteTravelSeconds(difficulty);
+  const targetNoteLeft = hitLine - NOTE_WIDTH / 2;
+  const startNoteLeft = boardWidth - NOTE_WIDTH - 8;
   const accuracy = song.length
     ? Math.round(((judgementStats.great + judgementStats.ok + judgementStats.meh) / song.length) * 100)
     : 0;
@@ -954,7 +1265,7 @@ function PianoMan({ onNavigate }) {
               onStart={() => {
                 if (selectedSong) setCountdown(COUNTDOWN_START);
               }}
-              onBack={() => onNavigate('minigame')}
+              onBack={returnToMenu}
               width={width}
               height={height}
             />
@@ -1028,76 +1339,174 @@ function PianoMan({ onNavigate }) {
                     <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12, fontWeight: '600' }}>Score </Text>
                     {score}
                   </Text>
-                  <Text numberOfLines={1} style={{ color: '#fff', fontSize: 12, fontWeight: '600', lineHeight: 16 }}>
+                  <Animated.Text numberOfLines={1} style={{
+                    color: feedback.startsWith('GREAT')
+                      ? '#78f0b0'
+                      : feedback.startsWith('OK')
+                        ? '#b7d0ff'
+                        : feedback.startsWith('MEH')
+                          ? '#ffd35b'
+                          : feedback.startsWith('MISS') || feedback === 'NO NOTE'
+                            ? '#ff8b9a'
+                            : '#fff',
+                    fontSize: 12,
+                    fontWeight: '700',
+                    lineHeight: 16,
+                    opacity: judgementAnim.interpolate({
+                      inputRange: [0, 0.12, 0.78, 1],
+                      outputRange: [0.35, 1, 1, 0],
+                    }),
+                    transform: [{
+                      scale: judgementAnim.interpolate({
+                        inputRange: [0, 0.18, 1],
+                        outputRange: [0.9, 1.04, 1],
+                      }),
+                    }],
+                  }}>
                     {feedback || ' '}
-                  </Text>
+                  </Animated.Text>
                 </View>
 
                 <View style={{ width: 52 }} />
               </View>
 
-              <Text numberOfLines={1} style={{
-                textAlign: 'center',
-                marginTop: 8,
-                color: 'rgba(255,255,255,0.8)',
-                fontSize: 12,
-              }}>
-                {selectedSong?.title} · {DIFFICULTY_LABELS[difficulty]}{combo > 1 ? ` · ${combo} combo` : ''}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
+                <Text numberOfLines={1} style={{
+                  maxWidth: combo > 1 ? '76%' : '100%',
+                  textAlign: 'center',
+                  color: 'rgba(255,255,255,0.86)',
+                  fontSize: 12,
+                  fontWeight: '600',
+                }}>
+                  {selectedSong?.title} · {DIFFICULTY_LABELS[difficulty]}
+                </Text>
+                {combo > 1 && (
+                  <Animated.Text style={{
+                    marginLeft: 7,
+                    color: '#ffd35b',
+                    fontSize: 12,
+                    fontWeight: '800',
+                    transform: [{ scale: comboScale }],
+                  }}>
+                    {combo} COMBO
+                  </Animated.Text>
+                )}
+              </View>
             </View>
 
             <Animated.View style={{
               position: 'absolute',
               zIndex: 2,
-              top: '50%',
+              top: boardTop,
               alignSelf: 'center',
               width: boardWidth,
               height: 190,
               overflow: 'hidden',
               borderRadius: 20,
-              backgroundColor: 'rgba(0,0,0,0.2)',
+              borderWidth: 1,
+              borderColor: 'rgba(127,168,255,0.38)',
+              backgroundColor: 'rgba(0,7,35,0.78)',
               paddingHorizontal: 30,
               paddingVertical: 20,
-              marginBottom: -20,
-              shadowColor: '#fff',
-              shadowOpacity: 0.5,
-              shadowRadius: 20,
+              shadowColor: '#3d6bff',
+              shadowOpacity: 0.24,
+              shadowRadius: 14,
               elevation: 5,
-              transform: [{ translateY: -240 }, { translateX: boardShake }],
+              transform: [{ translateX: boardShake }],
             }}>
               <Image
                 source={NOTE_STAFF}
                 resizeMode="stretch"
                 style={{ position: 'absolute', left: 30, top: 20, width: boardWidth - 60, height: 150 }}
               />
+              <Animated.View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  zIndex: 3,
+                  left: hitLine - 10,
+                  top: 0,
+                  width: 20,
+                  height: '100%',
+                  borderRadius: 10,
+                  backgroundColor: '#7fa8ff',
+                  opacity: hitFlashAnim.interpolate({
+                    inputRange: [0, 0.15, 1],
+                    outputRange: [0, 0.34, 0],
+                  }),
+                  transform: [{
+                    scaleX: hitFlashAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1.25],
+                    }),
+                  }],
+                }}
+              />
               <View style={{
                 position: 'absolute',
                 zIndex: 4,
                 left: hitLine,
                 top: 0,
-                height: 200,
+                height: '100%',
                 width: 3,
-                backgroundColor: '#fff',
+                backgroundColor: '#eaf2ff',
+                shadowColor: '#9cc4ff',
+                shadowOpacity: 0.9,
+                shadowRadius: 8,
+                elevation: 4,
               }} />
               {song.map((entry, index) => {
                 if (processed.current.has(index)) return null;
-                const progress = (elapsed - entry.delay) / NOTE_ANIMATION_SECONDS;
-                if (progress < 0 || progress > 1) return null;
-                const left = progress < 0.1
-                  ? 500 - (progress / 0.1) * 180
-                  : 320 - ((progress - 0.1) / 0.9) * 360;
+                const progress = (elapsed - entry.delay) / travelSeconds;
+                const maxProgress = 1 + HIT_TOLERANCE / travelSeconds;
+                if (progress < 0 || progress > maxProgress) return null;
+                const left = targetNoteLeft + (startNoteLeft - targetNoteLeft) * (1 - progress);
+                const opacity = Math.max(0, Math.min(progress * 7, 1))
+                  * Math.max(0.55, 1 - Math.max(0, progress - 1) * 4);
                 return (
-                  <View key={`${entry.note}-${index}`} style={{
-                    position: 'absolute',
-                    zIndex: 5,
-                    left,
-                    top: { C: 74, D: 142, E: 131, F: 119, G: 108, A: 96, B: 84 }[entry.note],
-                    width: 35,
-                    height: 20,
-                    borderRadius: 12,
-                    backgroundColor: 'rgb(251,234,0)',
-                    opacity: Math.max(0, Math.min((progress - 0.1) / 0.7, 1)),
-                  }} />
+                  <View
+                    key={`${entry.note}-${index}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      zIndex: 5,
+                      left,
+                      top: { C: 74, D: 142, E: 131, F: 119, G: 108, A: 96, B: 84 }[entry.note],
+                      width: NOTE_WIDTH,
+                      height: 22,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity,
+                    }}
+                  >
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: -7,
+                        right: -7,
+                        top: -4,
+                        bottom: -4,
+                        borderRadius: 18,
+                        backgroundColor: 'rgba(255,211,91,0.28)',
+                      }}
+                    />
+                    <View
+                      style={{
+                        width: NOTE_WIDTH,
+                        height: 20,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: 11,
+                        borderWidth: 1,
+                        borderColor: '#fff3c4',
+                        backgroundColor: 'rgba(255,211,91,0.58)',
+                        shadowColor: '#ffd35b',
+                        shadowOpacity: 0.9,
+                        shadowRadius: 8,
+                        elevation: 5,
+                      }}
+                    />
+                  </View>
                 );
               })}
             </Animated.View>
@@ -1176,7 +1585,7 @@ function PianoMan({ onNavigate }) {
               {[
                 { label: 'Resume', action: togglePause, highlighted: true },
                 { label: 'Retry', action: restart },
-                { label: 'Return to menu', action: () => onNavigate('minigame') },
+                { label: 'Return to menu', action: returnToMenu },
               ].map(({ label, action, highlighted }) => (
                 <AnimatedPressable
                   key={label}
@@ -1217,7 +1626,7 @@ function PianoMan({ onNavigate }) {
             stats={judgementStats}
             width={width}
             onRetry={restart}
-            onMenu={() => onNavigate('minigame')}
+            onMenu={returnToMenu}
           />
         )}
 

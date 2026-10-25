@@ -80,7 +80,7 @@ function Stats({ onNavigate }) {
       style={{ paddingTop: 72, paddingHorizontal: 14 }}
       contentStyle={{ maxWidth: 820 }}
     >
-      <BackButton onPress={() => onNavigate('mainmenu')} style={{ top: -58 }} />
+      <BackButton onPress={() => onNavigate('mainmenu')} />
       <Text style={styles.title}>Account Stats</Text>
       <Text style={styles.subtitle}>Your progress across every game mode</Text>
       {loading && <Text style={styles.subtitle}>Loading statistics...</Text>}

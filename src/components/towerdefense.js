@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Image, ImageBackground, Pressable, SafeAreaView, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, Image, ImageBackground, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { useAudioPlayer } from 'expo-audio';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { recordGameResult, recordGuestGameResult } from '../achievements';
 import { auth } from '../firebase';
 import AccountSavePrompt from './AccountSavePrompt';
 import Keyboard from './Keyboard';
-import { AppButton, BackButton, COLORS, styles } from './native';
+import { AppButton, COLORS, styles } from './native';
 
 const NOTES = ['C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'E#', 'Fb', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B', 'B#', 'Cb'];
 const NOTE_PITCH = {
@@ -26,6 +28,18 @@ const POOFS = [
   require('../../public/assets/poof3.gif'),
 ];
 const BACKGROUND = require('../../public/bg.jpg');
+const TD_AUDIO = {
+  backgroundMusic: require('../../public/assets/audio/td_background_music.mp3'),
+  correctNote: require('../../public/assets/audio/td_correct_note.mp3'),
+  wrongNote: require('../../public/assets/audio/td_wrong_note.mp3'),
+  monsterDefeat: require('../../public/assets/audio/td_monster_defeat.mp3'),
+  monsterLeak: require('../../public/assets/audio/td_monster_leak.mp3'),
+  waveStart: require('../../public/assets/audio/td_wave_start.mp3'),
+  waveComplete: require('../../public/assets/audio/td_wave_complete.mp3'),
+  gameOver: require('../../public/assets/audio/td_game_over.mp3'),
+  buttonClick: require('../../public/assets/audio/td_button_click.mp3'),
+  combo: require('../../public/assets/audio/td_combo.mp3'),
+};
 
 const IMG_C = require('../../public/tdnotes/C4.png');
 const IMG_CS = require('../../public/tdnotes/C#.png');
@@ -40,7 +54,6 @@ const IMG_A = require('../../public/tdnotes/A1.png');
 const IMG_AS = require('../../public/tdnotes/A#.png');
 const IMG_B = require('../../public/tdnotes/B.png');
 
-// Every spelling in NOTES is listed, so flats and enharmonics get the right image.
 const NOTE_IMAGES = {
   C: IMG_C,
   'C#': IMG_CS,
@@ -64,17 +77,46 @@ const NOTE_IMAGES = {
   'B#': IMG_C,
   Cb: IMG_B,
 };
+const WARNED_UNMAPPED_NOTES = new Set();
+
+function getNoteImage(note) {
+  const image = NOTE_IMAGES[note];
+  if (image) {
+    if (Platform.OS === 'web' && typeof image.uri === 'string' && image.uri.includes('#')) {
+      return { ...image, uri: image.uri.replace(/#/g, '%23') };
+    }
+    return image;
+  }
+
+  if (__DEV__ && !WARNED_UNMAPPED_NOTES.has(note)) {
+    console.error(`Tower Defense has no note image mapped for "${note}".`);
+    WARNED_UNMAPPED_NOTES.add(note);
+  }
+
+  return IMG_C;
+}
+
 const MAX_HP = 100;
+const MONSTER_HP = 100;
+const DAMAGE_PER_HIT = 100;
 const SPAWN_DELAY = 1500;
+const MIN_SPAWN_DELAY = 1200;
+const MAX_WAVE_SIZE = 10;
 const TRAVEL_DURATION = 6500;
+const PROJECTILE_DURATION = 280;
 const POOF_DURATION = 900;
 
 function makeWave(tier) {
-  return Array.from({ length: 4 + tier }, (_, index) => ({
+  return Array.from({ length: Math.min(4 + tier, MAX_WAVE_SIZE) }, (_, index) => ({
     id: `${tier}-${index}-${Date.now()}`,
     note: NOTES[Math.floor(Math.random() * NOTES.length)],
     monster: ((index + tier - 1) % MONSTERS.length),
+    hp: MONSTER_HP,
   }));
+}
+
+function getSpawnDelay(tier) {
+  return Math.max(MIN_SPAWN_DELAY, SPAWN_DELAY - (tier - 1) * 50);
 }
 
 function gameReducer(state, action) {
@@ -84,14 +126,31 @@ function gameReducer(state, action) {
       return {
         ...state,
         queue: state.queue.slice(1),
-        mobs: [...state.mobs, { ...state.queue[0], bornAt: action.clock }],
+        mobs: [...state.mobs, state.queue[0]],
+      };
+    case 'projectile-launch':
+      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated)) return state;
+      return {
+        ...state,
+        mobs: state.mobs.map((mob) => mob.id === action.id ? { ...mob, pendingHit: true } : mob),
+      };
+    case 'projectile-cancel':
+      return {
+        ...state,
+        mobs: state.mobs.map((mob) => mob.id === action.id ? { ...mob, pendingHit: false } : mob),
       };
     case 'hit':
-      if (state.paused || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated)) return state;
+      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && mob.pendingHit)) return state;
       return {
         ...state,
         mobs: state.mobs.map((mob) => mob.id === action.id
-          ? { ...mob, defeated: true, poof: action.poof }
+          ? {
+            ...mob,
+            pendingHit: false,
+            hp: Math.max(0, mob.hp - action.damage),
+            defeated: mob.hp - action.damage <= 0,
+            poof: mob.hp - action.damage <= 0 ? action.poof : mob.poof,
+          }
           : mob),
         score: state.score + 100,
         combo: state.combo + 1,
@@ -105,7 +164,7 @@ function gameReducer(state, action) {
       if (state.paused || state.hp <= 0) return state;
       return { ...state, combo: 0 };
     case 'leak':
-      if (state.paused || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated)) return state;
+      if (state.paused || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && !mob.pendingHit)) return state;
       return {
         ...state,
         hp: Math.max(0, state.hp - 10),
@@ -134,6 +193,298 @@ function gameReducer(state, action) {
   }
 }
 
+const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize, noteSize, renderOrder, fieldWidth, paused, registerMonsterRef, onReachTower }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const progressValue = useRef(0);
+  const reachedTower = useRef(false);
+  const defeatScale = useRef(new Animated.Value(0.72)).current;
+  const defeatOpacity = useRef(new Animated.Value(0.7)).current;
+  const noteOverflow = Math.max(0, (noteSize - monsterSize) / 2);
+  const startLeft = Math.max(fieldWidth * 0.03, noteOverflow);
+  const travelDistance = Math.max(0, fieldWidth - monsterSize - 16 - noteOverflow - startLeft);
+  const noteImage = getNoteImage(mob.note);
+  const movementStyle = {
+    transform: [{
+      translateX: progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, travelDistance],
+      }),
+    }],
+  };
+
+  useEffect(() => {
+    if (paused || mob.defeated) {
+      progress.stopAnimation((value) => {
+        progressValue.current = value;
+      });
+      return undefined;
+    }
+
+    const animation = Animated.timing(progress, {
+      toValue: 1,
+      duration: Math.max(0, (1 - progressValue.current) * TRAVEL_DURATION),
+      easing: Easing.linear,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished) {
+        progressValue.current = 1;
+        if (!reachedTower.current) {
+          reachedTower.current = true;
+          onReachTower(mob.id);
+        }
+      }
+    });
+
+    return () => {
+      animation.stop();
+      progress.stopAnimation((value) => {
+        progressValue.current = value;
+      });
+    };
+  }, [mob.defeated, mob.id, onReachTower, paused, progress]);
+
+  useEffect(() => {
+    if (!mob.defeated) return undefined;
+
+    const animation = Animated.parallel([
+      Animated.sequence([
+        Animated.timing(defeatScale, {
+          toValue: 1.12,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(defeatScale, {
+          toValue: 1,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(defeatOpacity, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [defeatOpacity, defeatScale, mob.defeated]);
+
+  return (
+    <Animated.View style={[movementStyle, {
+      position: 'absolute',
+      left: startLeft,
+      top: '53%',
+      width: monsterSize,
+      height: monsterSize,
+      alignItems: 'center',
+      zIndex: renderOrder,
+      elevation: renderOrder,
+    }]}>
+      {mob.defeated ? (
+        <Animated.Image
+          source={POOFS[mob.poof]}
+          resizeMode="contain"
+          style={{
+            width: monsterSize,
+            height: monsterSize,
+            opacity: defeatOpacity,
+            transform: [{ scale: defeatScale }],
+          }}
+        />
+      ) : (
+        <>
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: (monsterSize - noteSize) / 2,
+              bottom: monsterSize + 8,
+              width: noteSize,
+              height: noteSize * 0.72,
+              zIndex: 2,
+              elevation: 2,
+            }}
+          >
+            <Image
+              source={noteImage}
+              resizeMode="contain"
+              blurRadius={7}
+              style={{
+                position: 'absolute',
+                left: 2,
+                top: 1,
+                width: noteSize,
+                height: noteSize * 0.72,
+                tintColor: '#000',
+                opacity: 0.5,
+              }}
+            />
+            <Image
+              source={noteImage}
+              resizeMode="contain"
+              style={{ width: noteSize, height: noteSize * 0.72 }}
+              accessibilityLabel={`${mob.note} note`}
+            />
+          </View>
+          <Animated.Image
+            ref={(node) => registerMonsterRef(mob.id, node)}
+            source={MONSTERS[mob.monster]}
+            resizeMode="contain"
+            style={{ width: monsterSize, height: monsterSize }}
+          />
+        </>
+      )}
+    </Animated.View>
+  );
+});
+
+const NoteProjectile = React.memo(function NoteProjectile({ projectile, paused, onImpact }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const progressValue = useRef(0);
+  const completed = useRef(false);
+
+  useEffect(() => {
+    if (paused || completed.current) {
+      progress.stopAnimation((value) => {
+        progressValue.current = value;
+      });
+      return undefined;
+    }
+
+    const animation = Animated.timing(progress, {
+      toValue: 1,
+      duration: Math.max(0, (1 - progressValue.current) * PROJECTILE_DURATION),
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished && !completed.current) {
+        completed.current = true;
+        onImpact(projectile);
+      }
+    });
+
+    return () => {
+      animation.stop();
+      progress.stopAnimation((value) => {
+        progressValue.current = value;
+      });
+    };
+  }, [onImpact, paused, progress, projectile]);
+
+  const arcHeight = Math.min(36, Math.abs(projectile.target.y - projectile.source.y) * 0.12 + 18);
+  const style = {
+    opacity: progress.interpolate({
+      inputRange: [0, 0.12, 0.88, 1],
+      outputRange: [0.65, 1, 1, 0.8],
+    }),
+    transform: [
+      {
+        translateX: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [projectile.source.x - 12, projectile.target.x - 12],
+        }),
+      },
+      {
+        translateY: progress.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [
+            projectile.source.y - 12,
+            (projectile.source.y + projectile.target.y) / 2 - arcHeight - 12,
+            projectile.target.y - 12,
+          ],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <Animated.Text
+      style={[
+        {
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          color: COLORS.primary,
+          fontSize: 27,
+          fontWeight: '800',
+          textShadowColor: '#fff4b0',
+          textShadowRadius: 7,
+        },
+        style,
+      ]}
+    >
+      ♪
+    </Animated.Text>
+  );
+});
+
+const FloatingDamage = React.memo(function FloatingDamage({ indicator, onDone }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.7)).current;
+
+  useEffect(() => {
+    const animation = Animated.parallel([
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 760,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.spring(scale, {
+          toValue: 1.12,
+          damping: 10,
+          stiffness: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]);
+    animation.start(({ finished }) => {
+      if (finished) onDone(indicator.id);
+    });
+    return () => animation.stop();
+  }, [indicator.id, onDone, progress, scale]);
+
+  return (
+    <Animated.Text
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: indicator.x - 22,
+        top: indicator.y - 12,
+        color: COLORS.primary,
+        fontFamily: 'Georgia',
+        fontSize: 18,
+        fontWeight: '700',
+        textShadowColor: '#071136',
+        textShadowRadius: 4,
+        opacity: progress.interpolate({
+          inputRange: [0, 0.12, 0.7, 1],
+          outputRange: [0, 1, 1, 0],
+        }),
+        transform: [
+          {
+            translateY: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, -38],
+            }),
+          },
+          { scale },
+        ],
+      }}
+    >
+      -{indicator.damage}
+    </Animated.Text>
+  );
+});
+
 const initialGame = {
   tier: 1,
   hp: MAX_HP,
@@ -145,53 +496,360 @@ const initialGame = {
   notesPressed: 0,
 };
 
-function TowerDefense({ onNavigate }) {
+function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
   const { width, height } = useWindowDimensions();
+  const backgroundMusicPlayer = useAudioPlayer(TD_AUDIO.backgroundMusic);
+  const correctNotePlayer = useAudioPlayer(TD_AUDIO.correctNote);
+  const wrongNotePlayer = useAudioPlayer(TD_AUDIO.wrongNote);
+  const monsterDefeatPlayer = useAudioPlayer(TD_AUDIO.monsterDefeat);
+  const monsterLeakPlayer = useAudioPlayer(TD_AUDIO.monsterLeak);
+  const waveStartPlayer = useAudioPlayer(TD_AUDIO.waveStart);
+  const waveCompletePlayer = useAudioPlayer(TD_AUDIO.waveComplete);
+  const gameOverPlayer = useAudioPlayer(TD_AUDIO.gameOver);
+  const buttonClickPlayer = useAudioPlayer(TD_AUDIO.buttonClick);
+  const comboPlayer = useAudioPlayer(TD_AUDIO.combo);
   const [game, dispatch] = useReducer(gameReducer, initialGame);
-  const [clock, setClock] = useState(0);
   const [saveStatus, setSaveStatus] = useState('');
   const [savePromptResult, setSavePromptResult] = useState(null);
   const [highlightedNote, setHighlightedNote] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [projectiles, setProjectiles] = useState([]);
+  const [damageIndicators, setDamageIndicators] = useState([]);
+  const feedbackOpacity = useRef(new Animated.Value(0)).current;
+  const feedbackScale = useRef(new Animated.Value(0.85)).current;
   const scoreSaveStarted = useRef(false);
-  const clockRef = useRef(0);
-  clockRef.current = clock;
+  const gameAreaRef = useRef(null);
+  const battlefieldLayout = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const monsterRefs = useRef(new Map());
+  const pendingHitTargets = useRef(new Map());
+  const reachedTowerTargets = useRef(new Set());
+  const leakedMonsterIds = useRef(new Set());
+  const hitClearTimers = useRef(new Map());
+  const highlightTimer = useRef(null);
+  const projectileSequence = useRef(0);
+  const damageSequence = useRef(0);
+  const audioSettingsRef = useRef(audioSettings);
+  const audioMounted = useRef(false);
+  const soundPlaySequence = useRef(new WeakMap());
+  const previousTier = useRef(game.tier);
+  const completedWaveTier = useRef(0);
   const gameRef = useRef(game);
+  audioSettingsRef.current = audioSettings;
   gameRef.current = game;
   const defeated = game.hp <= 0;
   const keyboardHeight = Math.max(100, Math.min(160, height * 0.18));
   const sharpHeight = keyboardHeight * 0.62;
   const monsterSize = Math.min(104, Math.max(72, width * 0.2));
-  const noteSize = Math.min(104, Math.max(102, width * 3.15));
+  const noteSize = Math.round(Math.min(104, Math.max(102, width * 3.15)) * 1.75);
+  const soundEffectsVolume = Math.max(0, Math.min(100, audioSettings?.soundEffectsVolume ?? 100));
+  const soundEnabled = audioSettings?.soundEffects !== false && soundEffectsVolume > 0;
+  const musicVolume = Math.max(0, Math.min(100, audioSettings?.musicVolume ?? 100));
+  const musicEnabled = audioSettings?.music !== false && musicVolume > 0;
+  const guideEnabled = audioSettings?.towerDefenseGuide !== false;
   const currentTarget = game.mobs.find((mob) => !mob.defeated);
   const keyboardTarget = currentTarget
     ? KEYBOARD_NOTES[NOTE_PITCH[currentTarget.note]]
     : undefined;
 
+  const playSound = useCallback((player) => {
+    const settings = audioSettingsRef.current;
+    const volume = Math.max(0, Math.min(100, settings?.soundEffectsVolume ?? 100)) / 100;
+    if (!audioMounted.current || settings?.soundEffects === false || volume === 0) return;
+
+    const sequence = (soundPlaySequence.current.get(player) ?? 0) + 1;
+    soundPlaySequence.current.set(player, sequence);
+
+    try {
+      player.volume = volume;
+      if (!player.playing && player.currentTime === 0) {
+        player.play();
+        return;
+      }
+      player.pause();
+      player.seekTo(0).then(() => {
+        if (audioMounted.current && soundPlaySequence.current.get(player) === sequence) {
+          player.play();
+        }
+      }).catch((error) => {
+        console.warn('Tower Defense sound playback failed:', error);
+      });
+    } catch (error) {
+      console.warn('Tower Defense sound playback failed:', error);
+    }
+  }, []);
+
   useEffect(() => {
-    if (game.paused || defeated) return undefined;
-    const timer = setInterval(() => setClock((current) => current + 50), 50);
-    return () => clearInterval(timer);
-  }, [game.paused, defeated]);
+    audioMounted.current = true;
+    return () => {
+      audioMounted.current = false;
+      [
+        backgroundMusicPlayer,
+        correctNotePlayer,
+        wrongNotePlayer,
+        monsterDefeatPlayer,
+        monsterLeakPlayer,
+        waveStartPlayer,
+        waveCompletePlayer,
+        gameOverPlayer,
+        buttonClickPlayer,
+        comboPlayer,
+      ].forEach((player) => {
+        soundPlaySequence.current.set(player, (soundPlaySequence.current.get(player) ?? 0) + 1);
+      });
+    };
+  }, [
+    backgroundMusicPlayer,
+    correctNotePlayer,
+    wrongNotePlayer,
+    monsterDefeatPlayer,
+    monsterLeakPlayer,
+    waveStartPlayer,
+    waveCompletePlayer,
+    gameOverPlayer,
+    buttonClickPlayer,
+    comboPlayer,
+  ]);
+
+  useEffect(() => {
+    backgroundMusicPlayer.loop = true;
+    backgroundMusicPlayer.volume = musicVolume / 100;
+    if (musicEnabled && !game.paused && !defeated) {
+      try {
+        backgroundMusicPlayer.play();
+      } catch (error) {
+        console.warn('Tower Defense background music failed:', error);
+      }
+    } else {
+      backgroundMusicPlayer.pause();
+    }
+  }, [backgroundMusicPlayer, musicEnabled, musicVolume, game.paused, defeated]);
+
+  useEffect(() => {
+    playSound(waveStartPlayer);
+  }, [playSound, waveStartPlayer]);
+
+  useEffect(() => {
+    if (game.tier !== previousTier.current) {
+      previousTier.current = game.tier;
+      playSound(waveStartPlayer);
+    }
+  }, [game.tier, playSound, waveStartPlayer]);
+
+  useEffect(() => {
+    if (!defeated && !game.queue.length && !game.mobs.length && completedWaveTier.current !== game.tier) {
+      completedWaveTier.current = game.tier;
+      playSound(waveCompletePlayer);
+    }
+  }, [defeated, game.queue.length, game.mobs.length, game.tier, playSound, waveCompletePlayer]);
+
+  useEffect(() => {
+    if (defeated) playSound(gameOverPlayer);
+  }, [defeated, gameOverPlayer, playSound]);
+
+  useEffect(() => {
+    if (game.combo > 0 && game.combo % 5 === 0) playSound(comboPlayer);
+  }, [game.combo, comboPlayer, playSound]);
+
+  const showFeedback = useCallback((message, success) => {
+    feedbackOpacity.stopAnimation();
+    feedbackScale.stopAnimation();
+    feedbackOpacity.setValue(0);
+    feedbackScale.setValue(0.85);
+    setFeedback({ message, success });
+
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(feedbackOpacity, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.delay(350),
+        Animated.timing(feedbackOpacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.spring(feedbackScale, {
+        toValue: 1,
+        damping: 12,
+        stiffness: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) setFeedback(null);
+    });
+  }, [feedbackOpacity, feedbackScale]);
+
+  useEffect(() => () => {
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    hitClearTimers.current.forEach((timer) => clearTimeout(timer));
+    hitClearTimers.current.clear();
+    feedbackOpacity.stopAnimation();
+    feedbackScale.stopAnimation();
+  }, [feedbackOpacity, feedbackScale]);
+
+  const registerMonsterRef = useCallback((id, node) => {
+    if (node) monsterRefs.current.set(id, node);
+    else monsterRefs.current.delete(id);
+  }, []);
+
+  const removeDamageIndicator = useCallback((id) => {
+    setDamageIndicators((current) => current.filter((indicator) => indicator.id !== id));
+  }, []);
+
+  const handleMonsterReachedTower = useCallback((id) => {
+    reachedTowerTargets.current.add(id);
+    const latestGame = gameRef.current;
+    const mob = latestGame.mobs.find((item) => item.id === id);
+    if (latestGame.paused || latestGame.hp <= 0 || !mob || mob.defeated) return;
+    if (mob.pendingHit || pendingHitTargets.current.has(id)) return;
+    if (leakedMonsterIds.current.has(id)) return;
+
+    leakedMonsterIds.current.add(id);
+    reachedTowerTargets.current.delete(id);
+    playSound(monsterLeakPlayer);
+    dispatch({ type: 'leak', id });
+
+    const layout = battlefieldLayout.current;
+    setDamageIndicators((current) => [
+      ...current.slice(-4),
+      {
+        id: `castle-damage-${++damageSequence.current}`,
+        damage: 10,
+        x: layout.x + layout.width - 38,
+        y: layout.y + layout.height * 0.53,
+      },
+    ]);
+  }, [playSound, monsterLeakPlayer]);
+
+  const handleProjectileImpact = useCallback((projectile) => {
+    setProjectiles((current) => current.filter((item) => item.id !== projectile.id));
+    if (pendingHitTargets.current.get(projectile.targetId) !== projectile.id) return;
+
+    const latestGame = gameRef.current;
+    const target = latestGame.mobs.find((mob) => mob.id === projectile.targetId && !mob.defeated);
+    if (latestGame.paused || latestGame.hp <= 0 || !target) {
+      pendingHitTargets.current.delete(projectile.targetId);
+      dispatch({ type: 'projectile-cancel', id: projectile.targetId });
+      return;
+    }
+
+    const damage = Math.min(target.hp ?? MONSTER_HP, DAMAGE_PER_HIT);
+    if (damage <= 0) {
+      pendingHitTargets.current.delete(projectile.targetId);
+      dispatch({ type: 'projectile-cancel', id: projectile.targetId });
+      return;
+    }
+
+    dispatch({
+      type: 'hit',
+      id: target.id,
+      damage,
+      poof: Math.floor(Math.random() * POOFS.length),
+    });
+    if (target.hp - damage <= 0) playSound(monsterDefeatPlayer);
+    setDamageIndicators((current) => [
+      ...current.slice(-4),
+      {
+        id: `damage-${++damageSequence.current}`,
+        damage,
+        x: projectile.target.x,
+        y: projectile.target.y,
+      },
+    ]);
+    const existingTimer = hitClearTimers.current.get(target.id);
+    if (existingTimer) clearTimeout(existingTimer);
+    hitClearTimers.current.set(target.id, setTimeout(() => {
+      hitClearTimers.current.delete(target.id);
+      dispatch({ type: 'clear-hit', id: target.id });
+    }, POOF_DURATION));
+  }, [playSound, monsterDefeatPlayer]);
+
+  const launchProjectile = useCallback((launch, sourcePosition) => {
+    if (pendingHitTargets.current.get(launch.targetId) !== launch.id) return;
+
+    const fallbackToImmediateHit = () => handleProjectileImpact(launch);
+    const targetRef = monsterRefs.current.get(launch.targetId);
+    const gameArea = gameAreaRef.current;
+    if (!sourcePosition || !targetRef || !gameArea
+      || typeof gameArea.measureInWindow !== 'function'
+      || typeof targetRef.measureInWindow !== 'function') {
+      fallbackToImmediateHit();
+      return;
+    }
+
+    gameArea.measureInWindow((areaX, areaY) => {
+      targetRef.measureInWindow((targetX, targetY, targetWidth, targetHeight) => {
+        if (![areaX, areaY, targetX, targetY, targetWidth, targetHeight].every(Number.isFinite)) {
+          fallbackToImmediateHit();
+          return;
+        }
+        const latestGame = gameRef.current;
+        const targetStillActive = latestGame.mobs.some(
+          (mob) => mob.id === launch.targetId && !mob.defeated
+        );
+        if (latestGame.paused || latestGame.hp <= 0 || !targetStillActive) {
+          pendingHitTargets.current.delete(launch.targetId);
+          dispatch({ type: 'projectile-cancel', id: launch.targetId });
+          return;
+        }
+
+        const source = {
+          x: sourcePosition.x - areaX,
+          y: sourcePosition.y - areaY,
+        };
+        const target = {
+          x: targetX + targetWidth / 2 - areaX,
+          y: targetY + targetHeight / 2 - areaY,
+        };
+        setProjectiles((current) => [
+          ...current.slice(-3),
+          { ...launch, source, target },
+        ]);
+      });
+    });
+  }, [handleProjectileImpact]);
+
+  useEffect(() => {
+    pendingHitTargets.current.forEach((_, id) => {
+      const mob = game.mobs.find((item) => item.id === id);
+      if (!mob || mob.defeated) {
+        pendingHitTargets.current.delete(id);
+        reachedTowerTargets.current.delete(id);
+        leakedMonsterIds.current.delete(id);
+      } else if (!mob.pendingHit) {
+        pendingHitTargets.current.delete(id);
+        if (reachedTowerTargets.current.has(id)) handleMonsterReachedTower(id);
+      }
+    });
+    leakedMonsterIds.current.forEach((id) => {
+      if (!game.mobs.some((mob) => mob.id === id)) leakedMonsterIds.current.delete(id);
+    });
+    reachedTowerTargets.current.forEach((id) => {
+      const mob = game.mobs.find((item) => item.id === id);
+      if (!mob || mob.defeated) reachedTowerTargets.current.delete(id);
+    });
+    if (!game.paused) {
+      reachedTowerTargets.current.forEach((id) => {
+        const mob = game.mobs.find((item) => item.id === id);
+        if (mob && !mob.pendingHit && !mob.defeated) handleMonsterReachedTower(id);
+      });
+    }
+  }, [game.mobs, game.paused, handleMonsterReachedTower]);
 
   useEffect(() => {
     if (!game.queue.length || defeated || game.paused) return undefined;
-    const timer = setTimeout(() => dispatch({ type: 'spawn', clock: clockRef.current }), SPAWN_DELAY);
+    const timer = setTimeout(() => dispatch({ type: 'spawn' }), getSpawnDelay(game.tier));
     return () => clearTimeout(timer);
-  }, [game.queue.length, defeated, game.paused]);
+  }, [game.queue.length, game.tier, defeated, game.paused]);
 
   useEffect(() => {
     if (game.queue.length || game.mobs.length || defeated || game.paused) return undefined;
     const timer = setTimeout(() => dispatch({ type: 'next-wave' }), 1800);
     return () => clearTimeout(timer);
   }, [game.queue.length, game.mobs.length, defeated, game.paused]);
-
-  useEffect(() => {
-    game.mobs.forEach((mob) => {
-      if (!mob.defeated && clock - mob.bornAt >= TRAVEL_DURATION) {
-        dispatch({ type: 'leak', id: mob.id });
-      }
-    });
-  }, [clock, game.mobs]);
 
   useEffect(() => {
     if (!defeated) {
@@ -226,36 +884,70 @@ function TowerDefense({ onNavigate }) {
   // Stable callback (reads latest state via ref) so memoized piano keys don't re-render every 50ms tick.
   const playNote = useCallback((note) => {
     const g = gameRef.current;
-    if (g.paused || g.hp <= 0) return;
+    if (g.paused || g.hp <= 0) return null;
     setHighlightedNote(note);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => {
+      highlightTimer.current = null;
+      setHighlightedNote(null);
+    }, 150);
     dispatch({ type: 'press' });
     const target = g.mobs.find((mob) => !mob.defeated);
-    if (target && NOTE_PITCH[target.note] === NOTE_PITCH[note]) {
-      dispatch({ type: 'hit', id: target.id, poof: Math.floor(Math.random() * POOFS.length) });
-      setTimeout(() => dispatch({ type: 'clear-hit', id: target.id }), POOF_DURATION);
-    } else if (target) {
+    if (!target) return null;
+    if (NOTE_PITCH[target.note] === NOTE_PITCH[note]) {
+      playSound(correctNotePlayer);
+      if (pendingHitTargets.current.has(target.id)) return null;
+      const launch = {
+        id: `projectile-${++projectileSequence.current}`,
+        targetId: target.id,
+        note,
+      };
+      pendingHitTargets.current.set(target.id, launch.id);
+      dispatch({ type: 'projectile-launch', id: target.id });
+      return launch;
+    } else {
+      playSound(wrongNotePlayer);
+      showFeedback('Miss!', false);
       dispatch({ type: 'miss' });
     }
-    setTimeout(() => setHighlightedNote(null), 150);
-  }, []);
+    return null;
+  }, [correctNotePlayer, playSound, showFeedback, wrongNotePlayer]);
 
   const restart = () => {
+    playSound(buttonClickPlayer);
+    playSound(waveStartPlayer);
     scoreSaveStarted.current = false;
     setSavePromptResult(null);
-    setClock(0);
+    pendingHitTargets.current.clear();
+    hitClearTimers.current.forEach((timer) => clearTimeout(timer));
+    hitClearTimers.current.clear();
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = null;
+    reachedTowerTargets.current.clear();
+    leakedMonsterIds.current.clear();
+    completedWaveTier.current = 0;
+    previousTier.current = 1;
+    setProjectiles([]);
+    setDamageIndicators([]);
     dispatch({ type: 'restart' });
   };
 
+  const togglePause = () => {
+    playSound(buttonClickPlayer);
+    gameRef.current = { ...gameRef.current, paused: !gameRef.current.paused };
+    dispatch({ type: 'toggle-pause' });
+  };
+
   return (
-    <ImageBackground source={BACKGROUND} resizeMode="stretch" style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <View style={{ flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12, alignItems: 'center' }}>
+    <ImageBackground
+      source={BACKGROUND}
+      resizeMode="stretch"
+      imageStyle={{ width: '100%', height: '100%' }}
+      style={{ flex: 1, width: '100%' }}
+    >
+      <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1 }}>
+        <View ref={gameAreaRef} style={{ flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center', paddingHorizontal: 12, paddingTop: 16, paddingBottom: 12, alignItems: 'center' }}>
           <View style={{ width: '100%', height: 42, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <BackButton
-              label="‹  Minigames"
-              onPress={() => onNavigate('minigame')}
-              style={{ position: 'relative', top: 0, left: 0, width: 42, height: 42 }}
-            />
             <View style={{ flex: 1, height: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#10121d', borderRadius: 6, backgroundColor: '#1b1714' }}>
               <View style={{ width: `${game.hp}%`, height: '100%', backgroundColor: '#6be19b' }} />
               <Text style={{ position: 'absolute', top: 0, left: 0, right: 0, color: '#fff', textAlign: 'center', fontSize: 12, fontWeight: '700', textShadowColor: '#000', textShadowRadius: 3 }}>
@@ -265,7 +957,7 @@ function TowerDefense({ onNavigate }) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={game.paused ? 'Resume game' : 'Pause game'}
-              onPress={() => dispatch({ type: 'toggle-pause' })}
+              onPress={togglePause}
               disabled={defeated}
               style={({ pressed }) => ({
                 minWidth: 58,
@@ -295,52 +987,55 @@ function TowerDefense({ onNavigate }) {
             </Text>
           </View>
 
-          <View style={{
+          <View
+            onLayout={({ nativeEvent }) => {
+              battlefieldLayout.current = nativeEvent.layout;
+            }}
+            style={{
             flex: 1,
             width: '100%',
-            minHeight: 180,
+            minHeight: defeated ? 0 : 180,
             overflow: 'hidden',
             marginTop: 4,
             marginBottom: 8,
           }}>
-            {game.mobs.map((mob) => {
-              const progress = Math.min(1, Math.max(0, (clock - mob.bornAt) / TRAVEL_DURATION));
-              const maxLeft = 100 - (monsterSize / width) * 100 - 1;
-              const left = `${Math.max(1, Math.min(maxLeft, 3 + progress * (maxLeft - 3)))}%`;
+            {game.mobs.map((mob, index) => {
               return (
-                <View key={mob.id} style={{ position: 'absolute', left, top: '53%', alignItems: 'center' }}>
-                  {mob.defeated ? (
-                    <Image source={POOFS[mob.poof]} resizeMode="contain" style={{ width: monsterSize, height: monsterSize }} />
-                  ) : (
-                    <>
-                      <View style={{ width: noteSize, height: noteSize * 0.72, marginBottom: -30 }}>
-                        <Image
-                          source={NOTE_IMAGES[mob.note]}
-                          resizeMode="contain"
-                          blurRadius={7}
-                          style={{
-                            position: 'absolute',
-                            left: 2,
-                            top: 1,
-                            width: noteSize,
-                            height: noteSize * 0.72,
-                            tintColor: '#000',
-                            opacity: 0.5,
-                          }}
-                        />
-                        <Image
-                          source={NOTE_IMAGES[mob.note]}
-                          resizeMode="contain"
-                          style={{ width: noteSize, height: noteSize * 0.72 }}
-                          accessibilityLabel={`${mob.note} note`}
-                        />
-                      </View>
-                      <Image source={MONSTERS[mob.monster]} resizeMode="contain" style={{ width: monsterSize, height: monsterSize }} />
-                    </>
-                  )}
-                </View>
+                <TravelingMonster
+                  key={mob.id}
+                  mob={mob}
+                  monsterSize={monsterSize}
+                  noteSize={noteSize}
+                  renderOrder={game.mobs.length - index}
+                  fieldWidth={Math.min(width, 430) - 24}
+                  paused={game.paused || defeated}
+                  registerMonsterRef={registerMonsterRef}
+                  onReachTower={handleMonsterReachedTower}
+                />
               );
             })}
+            {feedback && (
+              <Animated.Text
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: 32,
+                  left: 0,
+                  right: 0,
+                  zIndex: 20,
+                  color: feedback.success ? COLORS.primary : COLORS.danger,
+                  fontSize: feedback.success ? 24 : 18,
+                  fontWeight: feedback.success ? '800' : '700',
+                  textAlign: 'center',
+                  textShadowColor: '#071136',
+                  textShadowRadius: 4,
+                  opacity: feedbackOpacity,
+                  transform: [{ scale: feedbackScale }],
+                }}
+              >
+                {feedback.message}
+              </Animated.Text>
+            )}
             {game.queue.length > 0 && (
               <Text style={{ position: 'absolute', right: 6, top: 6, color: COLORS.text, fontSize: 11, fontWeight: '700', textShadowColor: '#071136', textShadowRadius: 3 }}>
                 Next: {game.queue[0].note}
@@ -348,9 +1043,11 @@ function TowerDefense({ onNavigate }) {
             )}
           </View>
 
-          <Text accessibilityLiveRegion="polite" style={{ color: COLORS.primary, fontWeight: '800', marginBottom: 6, textShadowColor: '#071136', textShadowRadius: 3 }}>
-            {currentTarget ? `Play ${keyboardTarget} to defend the castle` : 'Get ready for the next monster'}
-          </Text>
+          {guideEnabled && (
+            <Text accessibilityLiveRegion="polite" style={{ color: COLORS.primary, fontWeight: '800', marginBottom: 6, textShadowColor: '#071136', textShadowRadius: 3 }}>
+              {currentTarget ? `Play ${keyboardTarget} to defend the castle` : 'Get ready for the next monster'}
+            </Text>
+          )}
           <View style={{ width: '100%', height: keyboardHeight, borderWidth: 1, borderColor: '#fff', borderRadius: 10, overflow: 'hidden' }}>
             <Keyboard
               includeSharps
@@ -358,14 +1055,42 @@ function TowerDefense({ onNavigate }) {
               sharpHeight={sharpHeight}
               highlightedNote={highlightedNote}
               onPress={playNote}
+              onPressOrigin={launchProjectile}
               disabled={game.paused || defeated}
+              soundEnabled={soundEnabled}
+              volume={soundEffectsVolume / 100}
             />
+          </View>
+          <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 4 }}>
+            {projectiles.map((projectile) => (
+            <NoteProjectile
+              key={projectile.id}
+              projectile={projectile}
+              paused={game.paused || defeated}
+              onImpact={handleProjectileImpact}
+            />
+            ))}
+            {damageIndicators.map((indicator) => (
+            <FloatingDamage
+              key={indicator.id}
+              indicator={indicator}
+              onDone={removeDamageIndicator}
+            />
+            ))}
           </View>
           {defeated && (
             <View style={[styles.card, { width: '100%', alignItems: 'center', marginTop: 12, padding: 12 }]}>
               <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: '800' }}>The castle has fallen</Text>
               <Text style={{ color: COLORS.muted, marginVertical: 7 }}>{saveStatus}</Text>
               <AppButton title="Play again" onPress={restart} />
+              <AppButton
+                title="Back to main menu"
+                onPress={() => {
+                  playSound(buttonClickPlayer);
+                  onNavigate('mainmenu');
+                }}
+                secondary
+              />
             </View>
           )}
           {game.paused && !defeated && (
@@ -383,9 +1108,38 @@ function TowerDefense({ onNavigate }) {
             }}>
               <View style={{ width: '100%', maxWidth: 280, padding: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 8, backgroundColor: '#091849', alignItems: 'stretch' }}>
                 <Text style={{ color: COLORS.text, fontFamily: 'Georgia', fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>Paused</Text>
-                <AppButton title="Resume" onPress={() => dispatch({ type: 'toggle-pause' })} style={{ minHeight: 42 }} />
+                <Pressable
+                  accessibilityRole="switch"
+                  accessibilityLabel="Tower Defense Guide"
+                  accessibilityState={{ checked: guideEnabled }}
+                  onPress={() => {
+                    playSound(buttonClickPlayer);
+                    onAudioSettingsChange({ towerDefenseGuide: !guideEnabled });
+                  }}
+                  style={{
+                    minHeight: 42,
+                    marginVertical: 6,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.4)',
+                    borderRadius: 6,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Text style={{ color: COLORS.text, fontWeight: '700' }}>Guide</Text>
+                  <Text style={{ color: COLORS.primary, fontWeight: '700' }}>{guideEnabled ? 'ON' : 'OFF'}</Text>
+                </Pressable>
+                <AppButton title="Resume" onPress={togglePause} style={{ minHeight: 42 }} />
                 <AppButton title="Retry" onPress={restart} secondary style={{ minHeight: 42 }} />
-                <Pressable onPress={() => onNavigate('minigame')} style={{ padding: 8, alignItems: 'center' }}>
+                <Pressable
+                  onPress={() => {
+                    playSound(buttonClickPlayer);
+                    onNavigate('minigame');
+                  }}
+                  style={{ padding: 8, alignItems: 'center' }}
+                >
                   <Text style={{ color: COLORS.primary }}>Return to menu</Text>
                 </Pressable>
               </View>

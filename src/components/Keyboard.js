@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 
@@ -11,11 +11,11 @@ const SOUND_FILES = {
   G: require('../../public/sounds/g.mp3'),
   A: require('../../public/sounds/a.mp3'),
   B: require('../../public/sounds/b.mp3'),
-  'C#': require('../../public/sounds/C#.mp3'),
-  'D#': require('../../public/sounds/D#.mp3'),
-  'F#': require('../../public/sounds/F#.mp3'),
-  'G#': require('../../public/sounds/G#.mp3'),
-  'A#': require('../../public/sounds/A#.mp3'),
+  'C#': require('../../public/sounds/c-sharp.mp3'),
+  'D#': require('../../public/sounds/d-sharp.mp3'),
+  'F#': require('../../public/sounds/f-sharp.mp3'),
+  'G#': require('../../public/sounds/g-sharp.mp3'),
+  'A#': require('../../public/sounds/a-sharp.mp3'),
 };
 
 const SHARP_KEYS = [
@@ -29,27 +29,39 @@ const SHARP_KEYS = [
 const PianoKey = React.memo(function PianoKey({
   note,
   onPress,
+  onPressOrigin,
   highlighted,
   disabled = false,
   soundEnabled = true,
+  volume = 1,
   blackKey = false,
   height = 142,
   sharpHeight = 84,
   gameLayout = false,
 }) {
   const player = useAudioPlayer(soundEnabled ? SOUND_FILES[note] : null);
+  const keyRef = useRef(null);
+  const playerMounted = useRef(false);
   const keyActive = highlighted;
 
   // When a sound finishes, stop it AND rewind, so seeking can't auto-restart it.
   useEffect(() => {
+    playerMounted.current = true;
     const subscription = player.addListener('playbackStatusUpdate', (status) => {
-      if (status.didJustFinish) {
+      if (playerMounted.current && status.didJustFinish) {
         player.pause();
         player.seekTo(0);
       }
     });
-    return () => subscription.remove();
+    return () => {
+      playerMounted.current = false;
+      subscription.remove();
+    };
   }, [player]);
+
+  useEffect(() => {
+    player.volume = volume;
+  }, [player, volume]);
 
   // Stop sound when disabled (pause / game over). No seeking here.
   useEffect(() => {
@@ -65,11 +77,21 @@ const handlePress = () => {
     }
     player.play();
   }
-  onPress?.(note);
+  const projectile = onPress?.(note);
+  if (projectile && onPressOrigin) {
+    if (typeof keyRef.current?.measureInWindow === 'function') {
+      keyRef.current.measureInWindow((x, y, width, height) => {
+        onPressOrigin(projectile, { x: x + width / 2, y: y + height / 2 });
+      });
+    } else {
+      onPressOrigin(projectile, null);
+    }
+  }
 };
 
   return (
     <Pressable
+      ref={keyRef}
       accessibilityLabel={`Play ${note}`}
       accessibilityRole="button"
       disabled={disabled}
@@ -90,11 +112,13 @@ const handlePress = () => {
         ...(blackKey ? { position: 'absolute', top: 0, left: '0%', zIndex: 1 } : {}),
       })}
     >
-      <Text style={{
-        color: gameLayout ? keyActive ? '#000' : '#fff' : blackKey ? '#fff' : '#131a36',
-        fontSize: blackKey ? 12 : gameLayout ? 24 : 19,
-        fontWeight: '800',
-      }}>
+      <Text
+        style={{
+          color: gameLayout ? keyActive ? '#000' : '#fff' : blackKey ? '#fff' : '#131a36',
+          fontSize: blackKey ? 12 : gameLayout ? 24 : 19,
+          fontWeight: '800',
+        }}
+      >
         {note}
       </Text>
     </Pressable>
@@ -110,6 +134,8 @@ function Keyboard({
   sharpHeight = 84,
   gameLayout = false,
   soundEnabled = true,
+  volume = 1,
+  onPressOrigin,
 }) {
   return (
     <View
@@ -132,6 +158,8 @@ function Keyboard({
           highlighted={note === highlightedNote}
           disabled={disabled}
           soundEnabled={soundEnabled}
+          volume={volume}
+          onPressOrigin={onPressOrigin}
           height={height}
           gameLayout={gameLayout}
         />
@@ -144,6 +172,8 @@ function Keyboard({
             highlighted={note === highlightedNote}
             disabled={disabled}
             soundEnabled={soundEnabled}
+            volume={volume}
+            onPressOrigin={onPressOrigin}
             sharpHeight={sharpHeight}
             blackKey
           />

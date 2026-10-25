@@ -117,7 +117,7 @@ function Profile({ onNavigate, isAuthenticated }) {
       style={{ paddingTop: 72, paddingHorizontal: 14 }}
       contentStyle={{ maxWidth: 780 }}
     >
-      <BackButton onPress={() => onNavigate('mainmenu')} style={{ top: -58 }} />
+      <BackButton onPress={() => onNavigate('mainmenu')} />
       <Text style={styles.title}>Player Profile</Text>
       <Text style={styles.subtitle}>{user ? 'Account connected' : 'Guest profile'}</Text>
       <View style={styles.card}>

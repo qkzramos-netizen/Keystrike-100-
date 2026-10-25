@@ -3,12 +3,12 @@ import {
   Image,
   ImageBackground,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export const COLORS = {
   background: '#01013a',
@@ -150,6 +150,7 @@ export const styles = StyleSheet.create({
   },
 });
 
+
 export function Page({
   children,
   scroll = true,
@@ -158,14 +159,18 @@ export function Page({
   backgroundImage,
   overlayColor = 'rgba(2, 10, 34, 0.78)',
 }) {
-  const contentJustification = style && !Array.isArray(style) ? style.justifyContent : undefined;
+  const contentJustification =
+    style && !Array.isArray(style) ? style.justifyContent : undefined;
+
   const content = (
-    <View style={[styles.page, style]}>
+    <View style={[styles.page, { flexGrow: 1, width: '100%' }, style]}>
       <View
         style={[
           styles.content,
           contentStyle,
-          contentJustification ? { justifyContent: contentJustification } : null,
+          contentJustification
+            ? { justifyContent: contentJustification }
+            : null,
         ]}
       >
         {children}
@@ -175,27 +180,61 @@ export function Page({
 
   const pageContent = scroll ? (
     <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ flexGrow: 1 }}
+      style={{ flex: 1, width: '100%' }}
+      contentContainerStyle={{
+        flexGrow: 1,
+        width: '100%',
+      }}
       keyboardShouldPersistTaps="handled"
     >
       {content}
     </ScrollView>
-  ) : content;
+  ) : (
+    content
+  );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      {backgroundImage ? (
-        <ImageBackground source={backgroundImage} resizeMode="cover" style={{ flex: 1 }}>
-          <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: overlayColor }} />
-          {pageContent}
+    <View style={{ flex: 1, width: '100%', alignSelf: 'stretch' }}>
+      {backgroundImage && (
+        <ImageBackground
+          source={backgroundImage}
+          resizeMode="cover"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+          }}
+        >
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: overlayColor },
+            ]}
+          />
         </ImageBackground>
-      ) : (
-        pageContent
       )}
-    </SafeAreaView>
+
+      <SafeAreaView
+        edges={['top', 'bottom']}
+        style={[
+          styles.safeArea,
+          {
+            flex: 1,
+            width: '100%',
+            alignSelf: 'stretch',
+            backgroundColor: 'transparent',
+          },
+        ]}
+      >
+        {pageContent}
+      </SafeAreaView>
+    </View>
   );
 }
+
 
 export function BackButton({ onPress, label = '‹  Back', style }) {
   return (
@@ -231,7 +270,15 @@ export function AppButton({
   );
 }
 
-export function ImageActionButton({ title, image, tint, imageOpacity = 0.25, onPress, style }) {
+export function ImageActionButton({
+  title,
+  image,
+  tint,
+  imageOpacity = 0.25,
+  onPress,
+  style,
+  textStyle,
+}) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -255,7 +302,13 @@ export function ImageActionButton({ title, image, tint, imageOpacity = 0.25, onP
         imageStyle={{ opacity: imageOpacity }}
         style={{ minHeight: 68, justifyContent: 'center' }}
       >
-        <Text style={{ color: '#ffffff', fontFamily: 'Georgia', fontSize: 20, fontWeight: '700', textAlign: 'center' }}>
+        <Text style={[{
+          color: '#ffffff',
+          fontFamily: 'Georgia',
+          fontSize: 20,
+          fontWeight: '700',
+          textAlign: 'center',
+        }, textStyle]}>
           {title}
         </Text>
       </ImageBackground>

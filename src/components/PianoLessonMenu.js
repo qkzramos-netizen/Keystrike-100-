@@ -1,21 +1,70 @@
 
 import React, { useRef, useState } from 'react';
-import { Animated, Easing, Pressable, Text, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Image,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
+
+import { useFonts } from 'expo-font';
+import { Cinzel_700Bold } from '@expo-google-fonts/cinzel';
+import {
+  Montserrat_400Regular,
+  Montserrat_700Bold,
+} from '@expo-google-fonts/montserrat';
 
 const LESSONS = [
-  { title: 'Treble Clef', description: 'Practice reading notes on the treble staff.', mode: 'Treble', symbol: '𝄞', subtitle: 'TREBLE STAFF' },
-  { title: 'Bass Clef', description: 'Practice reading notes on the bass staff.', mode: 'Bass', symbol: '𝄢', subtitle: 'BASS STAFF' },
-  { title: 'Chords', description: 'Practice identifying musical chords.', mode: 'Chords', symbol: '♫', subtitle: 'CHORD RECOGNITION' },
+  {
+    title: 'Treble Clef',
+    description: 'Practice reading notes on the treble staff.',
+    mode: 'Treble',
+    image: require('../../public/assets/treble-clef.png'),
+    subtitle: 'TREBLE STAFF',
+  },
+  {
+    title: 'Bass Clef',
+    description: 'Practice reading notes on the bass staff.',
+    mode: 'Bass',
+    image: require('../../public/assets/bass-clef.png'),
+    subtitle: 'BASS STAFF',
+  },
+  {
+    title: 'Chords',
+    description: 'Practice identifying musical chords.',
+    mode: 'Chords',
+    image: require('../../public/assets/chords.png'),
+    subtitle: 'CHORD RECOGNITION',
+  },
 ];
 
 export default function PianoLessonMenu({ onSelectLesson }) {
   const [selectedMode, setSelectedMode] = useState(null);
   const [transitioning, setTransitioning] = useState(false);
+
+  const [fontsLoaded] = useFonts({
+    Cinzel_700Bold,
+    Montserrat_400Regular,
+    Montserrat_700Bold,
+  });
+
   const menuOpacity = useRef(new Animated.Value(1)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const cardScales = useRef(LESSONS.map(() => new Animated.Value(1))).current;
-  const ringScales = useRef(LESSONS.map(() => new Animated.Value(0.5))).current;
-  const ringOpacities = useRef(LESSONS.map(() => new Animated.Value(0))).current;
+
+  const cardScales = useRef(
+    LESSONS.map(() => new Animated.Value(1))
+  ).current;
+
+  const ringScales = useRef(
+    LESSONS.map(() => new Animated.Value(0.5))
+  ).current;
+
+  const ringOpacities = useRef(
+    LESSONS.map(() => new Animated.Value(0))
+  ).current;
+
   const titleTranslateY = useRef(new Animated.Value(0)).current;
 
   const selectLesson = (lesson, index) => {
@@ -31,12 +80,14 @@ export default function PianoLessonMenu({ onSelectLesson }) {
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
+
       Animated.timing(overlayOpacity, {
         toValue: 1,
         duration: 520,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }),
+
       Animated.sequence([
         Animated.spring(cardScales[index], {
           toValue: 1.12,
@@ -44,6 +95,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           bounciness: 7,
           useNativeDriver: true,
         }),
+
         Animated.timing(cardScales[index], {
           toValue: 1.65,
           duration: 360,
@@ -51,12 +103,14 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           useNativeDriver: true,
         }),
       ]),
+
       Animated.sequence([
         Animated.timing(ringOpacities[index], {
           toValue: 0.9,
           duration: 100,
           useNativeDriver: true,
         }),
+
         Animated.parallel([
           Animated.timing(ringScales[index], {
             toValue: 3.5,
@@ -64,6 +118,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
+
           Animated.timing(ringOpacities[index], {
             toValue: 0,
             duration: 450,
@@ -71,6 +126,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           }),
         ]),
       ]),
+
       Animated.timing(titleTranslateY, {
         toValue: -10,
         duration: 350,
@@ -78,26 +134,92 @@ export default function PianoLessonMenu({ onSelectLesson }) {
         useNativeDriver: true,
       }),
     ]).start(({ finished }) => {
-      if (finished) onSelectLesson(lesson.mode);
+      if (finished) {
+        onSelectLesson(lesson.mode);
+      }
     });
   };
 
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
-    <View style={{ flex: 1, backgroundColor: 'rgba(8,8,18,0.82)', paddingHorizontal: 22, paddingVertical: 28, justifyContent: 'center', overflow: 'hidden' }}>
-      <Animated.View style={{ opacity: menuOpacity, flex: 1, justifyContent: 'center' }}>
-        <Animated.View style={{ alignItems: 'center', marginBottom: 32, transform: [{ translateY: titleTranslateY }] }}>
-          <View style={{ width: 68, height: 3, backgroundColor: '#D4AF37', borderRadius: 3, marginBottom: 18 }} />
-          <Text style={{ color: '#D4AF37', fontSize: 32, fontWeight: '900', textAlign: 'center', letterSpacing: 1.5 }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: 'rgba(8,8,18,0.82)',
+        paddingHorizontal: 22,
+        paddingVertical: 28,
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+    >
+      <Animated.View
+        style={{
+          opacity: menuOpacity,
+          flex: 1,
+          justifyContent: 'center',
+        }}
+      >
+        {/* HEADER */}
+        <Animated.View
+          style={{
+            alignItems: 'center',
+            marginBottom: 32,
+            transform: [{ translateY: titleTranslateY }],
+          }}
+        >
+          <View
+            style={{
+              width: 68,
+              height: 3,
+              backgroundColor: '#D4AF37',
+              borderRadius: 3,
+              marginBottom: 18,
+            }}
+          />
+
+          <Text
+            style={{
+              color: '#D4AF37',
+              fontFamily: 'Cinzel_700Bold',
+              fontSize: 32,
+              fontWeight: '900',
+              textAlign: 'center',
+              letterSpacing: 1.5,
+            }}
+          >
             PIANO LESSONS
           </Text>
-          <Text style={{ color: '#E0E0E0', fontSize: 14, textAlign: 'center', marginTop: 10, letterSpacing: 1 }}>
+
+          <Text
+            style={{
+              color: '#E0E0E0',
+              fontFamily: 'Montserrat_700Bold',
+              fontSize: 13,
+              textAlign: 'center',
+              marginTop: 10,
+              letterSpacing: 1,
+            }}
+          >
             CHOOSE YOUR NEXT CHALLENGE
           </Text>
-          <Text style={{ color: '#888888', fontSize: 12, textAlign: 'center', marginTop: 7 }}>
+
+          <Text
+            style={{
+              color: '#888888',
+              fontFamily: 'Montserrat_400Regular',
+              fontSize: 12,
+              textAlign: 'center',
+              marginTop: 7,
+            }}
+          >
             Read the notes. Find your rhythm.
           </Text>
         </Animated.View>
 
+        {/* LESSON CARDS */}
         <View style={{ gap: 15 }}>
           {LESSONS.map((lesson, index) => {
             const isSelected = selectedMode === lesson.mode;
@@ -109,9 +231,11 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                   position: 'relative',
                   zIndex: isSelected ? 5 : 1,
                   transform: [{ scale: cardScales[index] }],
-                  opacity: selectedMode && !isSelected ? 0.35 : 1,
+                  opacity:
+                    selectedMode && !isSelected ? 0.35 : 1,
                 }}
               >
+                {/* EXPANDING SELECTION RING */}
                 <Animated.View
                   pointerEvents="none"
                   style={{
@@ -124,7 +248,9 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                     borderColor: '#F7D96B',
                     borderRadius: 16,
                     opacity: ringOpacities[index],
-                    transform: [{ scale: ringScales[index] }],
+                    transform: [
+                      { scale: ringScales[index] },
+                    ],
                   }}
                 />
 
@@ -138,45 +264,106 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                     paddingVertical: 17,
                     paddingHorizontal: 17,
                     borderRadius: 16,
-                    backgroundColor: isSelected ? '#39300F' : pressed ? '#302A17' : 'rgba(25,25,30,0.96)',
+
+                    backgroundColor: isSelected
+                      ? '#39300F'
+                      : pressed
+                        ? '#302A17'
+                        : 'rgba(25,25,30,0.96)',
+
                     borderWidth: 1.5,
-                    borderColor: isSelected ? '#F7D96B' : pressed ? '#F7D96B' : '#66551D',
+
+                    borderColor: isSelected
+                      ? '#F7D96B'
+                      : pressed
+                        ? '#F7D96B'
+                        : '#66551D',
+
                     shadowColor: '#D4AF37',
                     shadowOpacity: isSelected ? 0.75 : 0.16,
                     shadowRadius: isSelected ? 24 : 8,
-                    shadowOffset: { width: 0, height: 0 },
+                    shadowOffset: {
+                      width: 0,
+                      height: 0,
+                    },
                     elevation: isSelected ? 12 : 3,
                   })}
                 >
-                  <View style={{
-                    width: 62,
-                    height: 62,
-                    borderRadius: 14,
-                    backgroundColor: isSelected ? '#D4AF37' : '#302A17',
-                    borderWidth: 1,
-                    borderColor: '#9C812B',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 16,
-                  }}>
-                    <Text style={{ color: isSelected ? '#020000' : '#e7b80f', fontSize: 35, fontWeight: '600' }}>
-                      {lesson.symbol}
-                    </Text>
+                  {/* IMAGE ICON */}
+                  <View
+                    style={{
+                      width: 62,
+                      height: 62,
+                      borderRadius: 14,
+                      backgroundColor: isSelected
+                        ? '#D4AF37'
+                        : '#302A17',
+                      borderWidth: 1,
+                      borderColor: '#9C812B',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 16,
+                    }}
+                  >
+                    <Image
+                      source={lesson.image}
+                      resizeMode="contain"
+                      style={{
+                        width: 42,
+                        height: 48,
+                      }}
+                    />
                   </View>
 
+                  {/* CARD TEXT */}
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#D4AF37', fontSize: 10, fontWeight: '900', letterSpacing: 1.8, marginBottom: 5 }}>
+                    <Text
+                      style={{
+                        color: '#D4AF37',
+                        fontFamily: 'Montserrat_700Bold',
+                        fontSize: 10,
+                        fontWeight: '900',
+                        letterSpacing: 1.8,
+                        marginBottom: 5,
+                      }}
+                    >
                       {lesson.subtitle}
                     </Text>
-                    <Text style={{ color: '#FFFFFF', fontSize: 19, fontWeight: '800', marginBottom: 5 }}>
+
+                    <Text
+                      style={{
+                        color: '#FFFFFF',
+                        fontFamily: 'Montserrat_700Bold',
+                        fontSize: 17,
+                        fontWeight: '800',
+                        marginBottom: 5,
+                      }}
+                    >
                       {lesson.title}
                     </Text>
-                    <Text style={{ color: '#BDBDBD', fontSize: 12, lineHeight: 18 }}>
+
+                    <Text
+                      style={{
+                        color: '#BDBDBD',
+                        fontFamily: 'Montserrat_400Regular',
+                        fontSize: 11,
+                        lineHeight: 18,
+                      }}
+                    >
                       {lesson.description}
                     </Text>
                   </View>
 
-                  <Text style={{ color: '#D4AF37', fontSize: 25, fontWeight: '300', marginLeft: 8 }}>
+                  {/* CHEVRON */}
+                  <Text
+                    style={{
+                      color: '#D4AF37',
+                      fontFamily: 'Montserrat_400Regular',
+                      fontSize: 25,
+                      fontWeight: '300',
+                      marginLeft: 8,
+                    }}
+                  >
                     ›
                   </Text>
                 </Pressable>
@@ -185,11 +372,22 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           })}
         </View>
 
-        <Text style={{ color: '#777777', fontSize: 10, textAlign: 'center', marginTop: 28, letterSpacing: 2 }}>
+        {/* FOOTER */}
+        <Text
+          style={{
+            color: '#777777',
+            fontFamily: 'Montserrat_700Bold',
+            fontSize: 10,
+            textAlign: 'center',
+            marginTop: 28,
+            letterSpacing: 2,
+          }}
+        >
           FOCUS • TIMING • PRECISION
         </Text>
       </Animated.View>
 
+      {/* TRANSITION OVERLAY */}
       <Animated.View
         pointerEvents="none"
         style={{

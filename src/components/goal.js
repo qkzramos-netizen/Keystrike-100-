@@ -39,7 +39,7 @@ function Goal({ onNavigate }) {
       style={{ paddingTop: 72, paddingHorizontal: 14 }}
       contentStyle={{ maxWidth: 760 }}
     >
-      <BackButton onPress={() => onNavigate('playmenu')} style={{ top: -58 }} />
+      <BackButton onPress={() => onNavigate('playmenu')} />
       <Text style={styles.title}>Achievements</Text>
       <Text style={styles.subtitle}>{unlockedCount} of {ACHIEVEMENTS.length} unlocked</Text>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
