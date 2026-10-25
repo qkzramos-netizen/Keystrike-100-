@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import {
   Image,
   ImageBackground,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +22,7 @@ export const COLORS = {
 };
 
 const BACK_ICON = require('../../public/assets/back.png');
+const PageLayoutContext = createContext({ topOffset: 0, leftOffset: 0 });
 
 export const styles = StyleSheet.create({
   safeArea: {
@@ -84,8 +86,8 @@ export const styles = StyleSheet.create({
   },
   back: {
     position: 'absolute',
-    top: 10,
-    left: 14,
+    top: 20,
+    left: 16,
     width: 48,
     height: 48,
     justifyContent: 'center',
@@ -159,8 +161,20 @@ export function Page({
   backgroundImage,
   overlayColor = 'rgba(2, 10, 34, 0.78)',
 }) {
-  const contentJustification =
-    style && !Array.isArray(style) ? style.justifyContent : undefined;
+  const { width: windowWidth } = useWindowDimensions();
+  const pageStyle = StyleSheet.flatten(style) || {};
+  const innerContentStyle = StyleSheet.flatten(contentStyle) || {};
+  const paddingTop = pageStyle.paddingTop ?? styles.page.paddingTop;
+  const paddingLeft = pageStyle.paddingLeft ?? pageStyle.paddingHorizontal ?? styles.page.paddingHorizontal;
+  const paddingRight = pageStyle.paddingRight ?? pageStyle.paddingHorizontal ?? styles.page.paddingHorizontal;
+  const availableWidth = Math.max(0, windowWidth - paddingLeft - paddingRight);
+  const contentWidth = Math.min(availableWidth, innerContentStyle.maxWidth ?? styles.content.maxWidth);
+  const contentOffsetX = Math.max(0, (availableWidth - contentWidth) / 2);
+  const contentJustification = pageStyle.justifyContent;
+  const backButtonLayout = {
+    topOffset: 12 - paddingTop,
+    leftOffset: 16 - paddingLeft - contentOffsetX,
+  };
 
   const content = (
     <View style={[styles.page, { flexGrow: 1, width: '100%' }, style]}>
@@ -229,7 +243,9 @@ export function Page({
           },
         ]}
       >
-        {pageContent}
+        <PageLayoutContext.Provider value={backButtonLayout}>
+          {pageContent}
+        </PageLayoutContext.Provider>
       </SafeAreaView>
     </View>
   );
@@ -237,9 +253,11 @@ export function Page({
 
 
 export function BackButton({ onPress, label = '‹  Back', style }) {
+  const { topOffset, leftOffset } = useContext(PageLayoutContext);
+
   return (
-    <Pressable accessibilityLabel={label.replace(/[‹›]/g, '').trim()} accessibilityRole="button" onPress={onPress} style={[styles.back, style]}>
-      <Image source={BACK_ICON} resizeMode="contain" style={{ width: 44, height: 44 }} />
+    <Pressable accessibilityLabel={label.replace(/[‹›]/g, '').trim()} accessibilityRole="button" onPress={onPress} style={[styles.back, { top: topOffset, left: leftOffset }, style]}>
+      <Image source={BACK_ICON} resizeMode="contain" style={{ width: 40, height: 40 }} />
     </Pressable>
   );
 }

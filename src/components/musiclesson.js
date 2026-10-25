@@ -463,7 +463,7 @@ useEffect(() => {
         {renderMusicToggle(true)}
         <Image source={require('../../public/assets/glowing-musical-pentagram-background-with-sound-notes_1017-31220.avif')} resizeMode="cover" style={{position:'absolute',top:0,right:0,bottom:0,left:0,width:'100%',height:'100%'}}/>
         <View pointerEvents="none" style={{position:'absolute',top:0,right:0,bottom:0,left:0,backgroundColor:'rgba(1, 1, 58, 0.8)'}}/>
-        <BackButton style={{top:10+safeAreaInsets.top}} onPress={()=>{playButtonSound();onNavigate('playmenu');}}/>
+        <BackButton onPress={()=>{playButtonSound();onNavigate('playmenu');}}/>
         <View style={{flex:1,width:'100%',alignSelf:'stretch'}}>
           <PianoLessonMenu onSelectLesson={selectLesson}/>
         </View>

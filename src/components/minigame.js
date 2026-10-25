@@ -1,13 +1,14 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, Text, View } from 'react-native';
+import { Animated, Easing, Modal, Pressable, Text, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import {
   Montserrat_400Regular,
   Montserrat_700Bold,
   Montserrat_900Black,
 } from '@expo-google-fonts/montserrat';
-import { AppButton, BackButton, Page, styles } from './native';
+import { getTowerDefenseHighScore } from '../achievements';
+import { AppButton, BackButton, COLORS, Page, styles } from './native';
 
 const minigame = require('../../public/assets/minigame.png');
 const splashscreen = require('../../public/assets/pianomanlogo.png');
@@ -26,6 +27,7 @@ function GameCard({
   onSelect,
   titleFont = 'Georgia',
   descriptionFont = 'Georgia',
+  extraInfo,
 }) {
   const entrance = useRef(new Animated.Value(0)).current;
   const float = useRef(new Animated.Value(0)).current;
@@ -37,6 +39,10 @@ function GameCard({
   const selectionGlow = useRef(new Animated.Value(0)).current;
   const [hovered, setHovered] = useState(false);
   const navigating = useRef(false);
+
+  useEffect(() => {
+    if (!disabled) navigating.current = false;
+  }, [disabled]);
 
   useEffect(() => {
     const enter = Animated.sequence([
@@ -341,6 +347,22 @@ function GameCard({
           >
             {description}
           </Text>
+          {extraInfo ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={{
+                color: NAVY,
+                fontFamily: descriptionFont,
+                fontSize: 14,
+                fontWeight: '700',
+                marginTop: -3,
+                marginBottom: 8,
+                textAlign: 'center',
+              }}
+            >
+              {extraInfo}
+            </Text>
+          ) : null}
         </Pressable>
         <AppButton
           title={selected ? 'Loading...' : 'Play'}
@@ -364,7 +386,12 @@ function GameCard({
   );
 }
 
-function Minigame({ onNavigate, playButtonSound = () => {} }) {
+function Minigame({
+  onNavigate,
+  audioSettings,
+  onAudioSettingsChange,
+  playButtonSound = () => {},
+}) {
   const [fontsLoaded, fontError] = useFonts({
     Montserrat_400Regular,
     Montserrat_700Bold,
@@ -373,6 +400,25 @@ function Minigame({ onNavigate, playButtonSound = () => {} }) {
   const headingOpacity = useRef(new Animated.Value(0)).current;
   const headingY = useRef(new Animated.Value(12)).current;
   const [selectedGame, setSelectedGame] = useState(null);
+  const [showTowerDefensePrompt, setShowTowerDefensePrompt] = useState(false);
+  const [showPianoManPrompt, setShowPianoManPrompt] = useState(false);
+  const [towerDefenseHighScore, setTowerDefenseHighScore] = useState(null);
+  const [towerDefenseHighScoreError, setTowerDefenseHighScoreError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getTowerDefenseHighScore()
+      .then((highScore) => {
+        if (active) setTowerDefenseHighScore(highScore);
+      })
+      .catch((error) => {
+        if (active) setTowerDefenseHighScoreError(error.message || 'Could not load the high score.');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!fontsLoaded && !fontError) return undefined;
@@ -403,6 +449,48 @@ function Minigame({ onNavigate, playButtonSound = () => {} }) {
   };
 
   const selectGame = (game) => setSelectedGame(game);
+
+  const openTowerDefense = () => {
+    if (audioSettings?.towerDefenseGuidePrompted) {
+      onNavigate('towerdefense');
+      return;
+    }
+
+    onAudioSettingsChange?.({ towerDefenseGuidePrompted: true });
+    setShowTowerDefensePrompt(true);
+  };
+
+  const startTowerDefense = (guideEnabled) => {
+    onAudioSettingsChange?.({ towerDefenseGuide: guideEnabled });
+    setShowTowerDefensePrompt(false);
+    onNavigate('towerdefense');
+  };
+
+  const cancelTowerDefense = () => {
+    setShowTowerDefensePrompt(false);
+    setSelectedGame(null);
+  };
+
+  const openPianoMan = () => {
+    if (audioSettings?.pianoManGuidePrompted) {
+      onNavigate('pianoman');
+      return;
+    }
+
+    onAudioSettingsChange?.({ pianoManGuidePrompted: true });
+    setShowPianoManPrompt(true);
+  };
+
+  const startPianoMan = (guideEnabled) => {
+    onAudioSettingsChange?.({ pianoManGuide: guideEnabled });
+    setShowPianoManPrompt(false);
+    onNavigate('pianoman');
+  };
+
+  const cancelPianoMan = () => {
+    setShowPianoManPrompt(false);
+    setSelectedGame(null);
+  };
 
   return (
     <Page style={{ justifyContent: 'center' }} contentStyle={{ maxWidth: 400 }}>
@@ -445,9 +533,12 @@ function Minigame({ onNavigate, playButtonSound = () => {} }) {
         selected={selectedGame === 'towerdefense'}
         disabled={selectedGame !== null}
         onSelect={() => selectGame('towerdefense')}
-        onPress={() => onNavigate('towerdefense')}
+        onPress={openTowerDefense}
         titleFont={interfaceFont}
         descriptionFont={bodyFont}
+        extraInfo={towerDefenseHighScoreError
+          ? 'High score unavailable'
+          : `High score: ${towerDefenseHighScore === null ? 'Loading…' : towerDefenseHighScore || '—'}`}
       />
 
       <GameCard
@@ -459,10 +550,142 @@ function Minigame({ onNavigate, playButtonSound = () => {} }) {
         selected={selectedGame === 'pianoman'}
         disabled={selectedGame !== null}
         onSelect={() => selectGame('pianoman')}
-        onPress={() => onNavigate('pianoman')}
+        onPress={openPianoMan}
         titleFont={interfaceFont}
         descriptionFont={bodyFont}
       />
+
+      <Modal
+        animationType="fade"
+        onRequestClose={cancelTowerDefense}
+        transparent
+        visible={showTowerDefensePrompt}
+      >
+        <View style={{
+          flex: 1,
+          justifyContent: 'center',
+          padding: 24,
+          backgroundColor: 'rgba(0, 0, 0, 0.72)',
+        }}>
+          <View style={[styles.card, {
+            maxWidth: 340,
+            alignSelf: 'center',
+            borderRadius: 8,
+            borderColor: 'rgba(255, 255, 255, 0.4)',
+            backgroundColor: '#091849',
+            padding: 24,
+          }]}>
+            <Text style={{
+              color: COLORS.primary,
+              fontFamily: 'Georgia',
+              fontSize: 24,
+              fontWeight: '700',
+              textAlign: 'center',
+            }}>
+              Use the note guide?
+            </Text>
+            <Text style={{
+              color: COLORS.muted,
+              textAlign: 'center',
+              lineHeight: 22,
+              marginVertical: 14,
+            }}>
+              The guide shows which note to play to defend your tower. You can change under settings or while the game is paused.
+            </Text>
+            <AppButton
+              title="Yes, show the guide"
+              onPress={() => {
+                playButtonSound();
+                startTowerDefense(true);
+              }}
+            />
+            <AppButton
+              title="No, hide the guide"
+              onPress={() => {
+                playButtonSound();
+                startTowerDefense(false);
+              }}
+              secondary
+            />
+            <AppButton
+              title="Cancel"
+              onPress={() => {
+                playButtonSound();
+                cancelTowerDefense();
+              }}
+              secondary
+              style={{ borderColor: 'transparent', backgroundColor: 'transparent' }}
+              textStyle={{ color: 'rgba(255,255,255,0.7)', fontWeight: '400' }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={cancelPianoMan}
+        transparent
+        visible={showPianoManPrompt}
+      >
+        <View style={{
+          flex: 1,
+          justifyContent: 'center',
+          padding: 24,
+          backgroundColor: 'rgba(0, 0, 0, 0.72)',
+        }}>
+          <View style={[styles.card, {
+            maxWidth: 340,
+            alignSelf: 'center',
+            borderRadius: 8,
+            borderColor: 'rgba(255, 255, 255, 0.4)',
+            backgroundColor: '#091849',
+            padding: 24,
+          }]}>
+            <Text style={{
+              color: COLORS.primary,
+              fontFamily: 'Georgia',
+              fontSize: 24,
+              fontWeight: '700',
+              textAlign: 'center',
+            }}>
+              Use the note guide?
+            </Text>
+            <Text style={{
+              color: COLORS.muted,
+              textAlign: 'center',
+              lineHeight: 22,
+              marginVertical: 14,
+            }}>
+              The guide shows note names on the falling notes. You can change this anytime in Settings.
+            </Text>
+            <AppButton
+              title="Yes, show the guide"
+              onPress={() => {
+                playButtonSound();
+                startPianoMan(true);
+              }}
+            />
+            <AppButton
+              title="No, hide the guide"
+              onPress={() => {
+                playButtonSound();
+                startPianoMan(false);
+              }}
+              secondary
+            />
+            <AppButton
+              title="Cancel"
+              onPress={() => {
+                playButtonSound();
+                cancelPianoMan();
+              }}
+              secondary
+              style={{ borderColor: 'transparent', backgroundColor: 'transparent' }}
+              textStyle={{ color: 'rgba(255,255,255,0.7)', fontWeight: '400' }}
+            />
+          </View>
+        </View>
+      </Modal>
     </Page>
   );
 }

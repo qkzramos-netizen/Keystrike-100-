@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Image, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
-import { recordGameResult, recordGuestGameResult } from '../achievements';
+import { Animated, BackHandler, Easing, Image, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { getPianoManHighScores, recordGameResult, recordGuestGameResult } from '../achievements';
 import { auth } from '../firebase';
 import AccountSavePrompt from './AccountSavePrompt';
 import Keyboard from './Keyboard';
@@ -214,7 +214,20 @@ function DifficultyBars({ count, color }) {
   );
 }
 
-function PianoManSetup({ songs, difficulty, setDifficulty, selected, setSelected, onStart, onBack, width, height }) {
+function PianoManSetup({
+  songs,
+  difficulty,
+  setDifficulty,
+  selected,
+  setSelected,
+  onStart,
+  onBack,
+  width,
+  height,
+  highScores,
+  highScoresLoading,
+  highScoresError,
+}) {
   const [tab, setTab] = useState('songs');
   const panelAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(0)).current;
@@ -241,6 +254,19 @@ function PianoManSetup({ songs, difficulty, setDifficulty, selected, setSelected
   }, [tab, contentAnim]);
 
   useEffect(() => () => clearTimeout(advanceTimer.current), []);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      clearTimeout(advanceTimer.current);
+      if (tab === 'difficulty') {
+        setTab('songs');
+      } else {
+        onBack();
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onBack, tab]);
 
   const chooseSong = (title) => {
     setSelected(title);
@@ -272,29 +298,6 @@ function PianoManSetup({ songs, difficulty, setDifficulty, selected, setSelected
         justifyContent: 'center',
       }}
     >
-      <AnimatedPressable
-        accessibilityRole="button"
-        accessibilityLabel="Back to main menu"
-        pressScale={0.9}
-        onPress={onBack}
-        style={({ pressed }) => ({
-          position: 'absolute',
-          top: 12,
-          left: 12,
-          zIndex: 30,
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: 1,
-          borderColor: ACCENT_LINE,
-          backgroundColor: pressed ? 'rgba(255,255,255,0.18)' : 'rgba(0,18,72,0.9)',
-        })}
-      >
-        <Image source={BACK_ICON} resizeMode="contain" style={{ width: 24, height: 24 }} />
-      </AnimatedPressable>
-
       <Animated.View style={{
         width: Math.min(330, width - 24),
         height: Math.min(540, height - 110),
@@ -342,9 +345,30 @@ function PianoManSetup({ songs, difficulty, setDifficulty, selected, setSelected
         }}>
           {tab === 'songs' || !selectedSong ? (
             <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 18 }}>
-              <Text style={{ color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 14, marginLeft: 2 }}>
-                Choose a song
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to main menu"
+                  pressScale={0.9}
+                  onPress={onBack}
+                  style={({ pressed }) => ({
+                    width: 44,
+                    height: 44,
+                    marginRight: 8,
+                    borderRadius: 22,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderWidth: 1,
+                    borderColor: ACCENT_LINE,
+                    backgroundColor: pressed ? 'rgba(255,255,255,0.18)' : 'rgba(0,18,72,0.9)',
+                  })}
+                >
+                  <Image source={BACK_ICON} resizeMode="contain" style={{ width: 28, height: 28 }} />
+                </AnimatedPressable>
+                <Text style={{ color: '#fff', fontSize: 22, fontWeight: '700', marginLeft: 2 }}>
+                  Choose a song
+                </Text>
+              </View>
               <ScrollView
                 style={{ flex: 1 }}
                 contentContainerStyle={{ paddingBottom: 16 }}
@@ -455,7 +479,7 @@ function PianoManSetup({ songs, difficulty, setDifficulty, selected, setSelected
                         style={({ pressed }) => ({
                           flexDirection: 'row',
                           alignItems: 'center',
-                          minHeight: 76,
+                          minHeight: 92,
                           marginBottom: 12,
                           paddingVertical: 12,
                           paddingRight: 14,
@@ -477,6 +501,13 @@ function PianoManSetup({ songs, difficulty, setDifficulty, selected, setSelected
                           </Text>
                           <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 3 }}>
                             {Math.round(selectedSong.bpm * TEMPO[level])} BPM · {DIFFICULTY_NOTES[level]}
+                          </Text>
+                          <Text style={{ color: highScoresError ? '#ff9b9b' : '#ffd35b', fontSize: 11, fontWeight: '700', marginTop: 4 }}>
+                            {highScoresLoading
+                              ? 'High score: loading…'
+                              : highScoresError
+                                ? 'High score unavailable'
+                                : `High score: ${highScores[level] ?? '-'}`}
                           </Text>
                         </View>
                         <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 26, marginLeft: 8 }}>›</Text>
@@ -738,8 +769,9 @@ function ResultsOverlay({ results, accuracy, maxCombo, stats, width, onRetry, on
   );
 }
 
-function PianoMan({ onNavigate }) {
+function PianoMan({ onNavigate, audioSettings, onAudioSettingsChange }) {
   const { width, height } = useWindowDimensions();
+  const guideEnabled = audioSettings?.pianoManGuide !== false;
   // One shared player serves every UI button on this screen.
   const buttonSoundPlayer = useAudioPlayer(require('../../public/appsfx/mainsfx.mp3'));
   const synthPlayerC = useAudioPlayer(SYNTH_SOURCES.C);
@@ -775,6 +807,9 @@ function PianoMan({ onNavigate }) {
     }
   }, [buttonSoundPlayer]);
   const [selectedSong, setSelectedSong] = useState(null);
+  const [songHighScores, setSongHighScores] = useState({});
+  const [songHighScoresLoading, setSongHighScoresLoading] = useState(false);
+  const [songHighScoresError, setSongHighScoresError] = useState('');
   const [difficulty, setDifficulty] = useState('normal');
   const [gameStarted, setGameStarted] = useState(false);
   const [countdown, setCountdown] = useState(null);
@@ -817,6 +852,34 @@ function PianoMan({ onNavigate }) {
   songRef.current = song;
   difficultyRef.current = difficulty;
   synthPlayersRef.current = synthPlayers;
+
+  useEffect(() => {
+    if (!selectedSong) {
+      setSongHighScores({});
+      setSongHighScoresLoading(false);
+      setSongHighScoresError('');
+      return undefined;
+    }
+
+    let active = true;
+    setSongHighScores({});
+    setSongHighScoresLoading(true);
+    setSongHighScoresError('');
+    getPianoManHighScores(selectedSong.title)
+      .then((highScores) => {
+        if (active) setSongHighScores(highScores);
+      })
+      .catch((highScoreError) => {
+        if (active) setSongHighScoresError(highScoreError.message || 'Could not load high scores.');
+      })
+      .finally(() => {
+        if (active) setSongHighScoresLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedSong]);
 
   const clearSynthTimers = useCallback(() => {
     synthTimers.current.forEach((timer) => clearTimeout(timer));
@@ -1008,12 +1071,25 @@ function PianoMan({ onNavigate }) {
             score: completedResults.score,
             notesPressed: completedResults.notesPressed,
             songsCompleted: 1,
+            songTitle: completedResults.title,
+            difficulty: completedResults.difficulty,
+          };
+          const updateLocalHighScore = () => {
+            setSongHighScores((current) => ({
+              ...current,
+              [result.difficulty]: Math.max(
+                Number(current[result.difficulty]) || 0,
+                result.score
+              ),
+            }));
           };
           try {
             if (auth.currentUser) {
               await recordGameResult('pianoMan', result);
+              updateLocalHighScore();
             } else {
               const guestResultId = await recordGuestGameResult('pianoMan', result);
+              updateLocalHighScore();
               setSavePromptResult({ ...result, guestResultId });
             }
           } catch (saveError) {
@@ -1227,6 +1303,19 @@ function PianoMan({ onNavigate }) {
     onNavigate('minigame');
   };
 
+  useEffect(() => {
+    if (!gameStarted) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isPaused.current) {
+        returnToMenu();
+      } else {
+        togglePause();
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, [gameStarted]);
+
   const hitLine = 80;
   const boardWidth = Math.min(360, Math.max(280, width - 32));
   const logoWidth = Math.min(430, width);
@@ -1268,6 +1357,9 @@ function PianoMan({ onNavigate }) {
               onBack={returnToMenu}
               width={width}
               height={height}
+              highScores={songHighScores}
+              highScoresLoading={songHighScoresLoading}
+              highScoresError={songHighScoresError}
             />
           )
         ) : (
@@ -1505,7 +1597,13 @@ function PianoMan({ onNavigate }) {
                         shadowRadius: 8,
                         elevation: 5,
                       }}
-                    />
+                    >
+                      {guideEnabled && (
+                        <Text style={{ color: NAVY, fontSize: 11, fontWeight: '800' }}>
+                          {entry.note}
+                        </Text>
+                      )}
+                    </View>
                   </View>
                 );
               })}
@@ -1582,6 +1680,34 @@ function PianoMan({ onNavigate }) {
               <Text style={{ color: '#fff', textAlign: 'center', fontFamily: 'Georgia', fontSize: 28, fontWeight: '700', marginBottom: 8 }}>
                 Paused
               </Text>
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityLabel="Piano Man Guide"
+                accessibilityState={{ checked: guideEnabled }}
+                onPress={() => {
+                  playButtonSound();
+                  onAudioSettingsChange?.({ pianoManGuide: !guideEnabled });
+                }}
+                style={({ pressed }) => ({
+                  minHeight: 42,
+                  marginTop: 10,
+                  paddingHorizontal: 12,
+                  borderWidth: 1,
+                  borderColor: ACCENT_LINE,
+                  borderRadius: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text style={{ color: '#fff', fontFamily: 'Georgia', fontSize: 14, fontWeight: '700' }}>
+                  Guide
+                </Text>
+                <Text style={{ color: ACCENT, fontFamily: 'Georgia', fontSize: 14, fontWeight: '700' }}>
+                  {guideEnabled ? 'ON' : 'OFF'}
+                </Text>
+              </Pressable>
               {[
                 { label: 'Resume', action: togglePause, highlighted: true },
                 { label: 'Retry', action: restart },

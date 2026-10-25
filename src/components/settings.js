@@ -170,6 +170,13 @@ function Settings({ onNavigate, audioSettings, onAudioSettingsChange }) {
           audioSettings.towerDefenseGuide !== false,
           (value) => updateSetting('towerDefenseGuide', value)
         )}
+
+        {renderToggle(
+          'Piano Man Guide',
+          'Show note names on the falling notes',
+          audioSettings.pianoManGuide !== false,
+          (value) => updateSetting('pianoManGuide', value)
+        )}
       </View>
     </Page>
   );

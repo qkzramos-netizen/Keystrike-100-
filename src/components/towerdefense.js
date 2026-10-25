@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Animated, Easing, Image, ImageBackground, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, BackHandler, Easing, Image, ImageBackground, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { recordGameResult, recordGuestGameResult } from '../achievements';
+import { getTowerDefenseHighScore, recordGameResult, recordGuestGameResult } from '../achievements';
 import { auth } from '../firebase';
 import AccountSavePrompt from './AccountSavePrompt';
 import Keyboard from './Keyboard';
@@ -511,6 +511,8 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
   const [game, dispatch] = useReducer(gameReducer, initialGame);
   const [saveStatus, setSaveStatus] = useState('');
   const [savePromptResult, setSavePromptResult] = useState(null);
+  const [personalBest, setPersonalBest] = useState(null);
+  const [personalBestError, setPersonalBestError] = useState('');
   const [highlightedNote, setHighlightedNote] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [projectiles, setProjectiles] = useState([]);
@@ -550,6 +552,21 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
   const keyboardTarget = currentTarget
     ? KEYBOARD_NOTES[NOTE_PITCH[currentTarget.note]]
     : undefined;
+
+  useEffect(() => {
+    let active = true;
+    getTowerDefenseHighScore()
+      .then((highScore) => {
+        if (active) setPersonalBest(highScore);
+      })
+      .catch((error) => {
+        if (active) setPersonalBestError(error.message || 'Could not load the personal best.');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const playSound = useCallback((player) => {
     const settings = audioSettingsRef.current;
@@ -864,6 +881,7 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
       if (!auth.currentUser) {
         try {
           const guestResultId = await recordGuestGameResult('towerDefense', result);
+          setPersonalBest((best) => Math.max(best ?? 0, result.score));
           setSavePromptResult({ ...result, guestResultId });
         } catch (saveError) {
           setSaveStatus(saveError.message || 'Score could not be saved locally.');
@@ -873,6 +891,7 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
       setSaveStatus('Saving score...');
       try {
         await recordGameResult('towerDefense', result);
+        setPersonalBest((best) => Math.max(best ?? 0, result.score));
         setSaveStatus('Score saved to your account.');
       } catch (saveError) {
         setSaveStatus(saveError.message || 'Score could not be saved.');
@@ -938,6 +957,18 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
     dispatch({ type: 'toggle-pause' });
   };
 
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (gameRef.current.paused || gameRef.current.hp <= 0) {
+        onNavigate('minigame');
+      } else {
+        togglePause();
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onNavigate]);
+
   return (
     <ImageBackground
       source={BACKGROUND}
@@ -947,11 +978,11 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
     >
       <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1 }}>
         <View ref={gameAreaRef} style={{ flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center', paddingHorizontal: 12, paddingTop: 16, paddingBottom: 12, alignItems: 'center' }}>
-          <View style={{ width: '100%', height: 42, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ flex: 1, height: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#10121d', borderRadius: 6, backgroundColor: '#1b1714' }}>
+          <View style={{ width: '100%', minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flex: 1, height: 28, overflow: 'hidden', borderWidth: 2, borderColor: '#fff', borderRadius: 8, backgroundColor: 'rgba(4,15,44,0.94)' }}>
               <View style={{ width: `${game.hp}%`, height: '100%', backgroundColor: '#6be19b' }} />
-              <Text style={{ position: 'absolute', top: 0, left: 0, right: 0, color: '#fff', textAlign: 'center', fontSize: 12, fontWeight: '700', textShadowColor: '#000', textShadowRadius: 3 }}>
-                {game.hp}/100
+              <Text style={{ position: 'absolute', top: 0, left: 0, right: 0, color: '#fff', textAlign: 'center', fontSize: 15, fontWeight: '900', textShadowColor: '#000', textShadowRadius: 4 }}>
+                CASTLE HP  {game.hp}/100
               </Text>
             </View>
             <Pressable
@@ -960,31 +991,53 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
               onPress={togglePause}
               disabled={defeated}
               style={({ pressed }) => ({
-                minWidth: 58,
-                height: 34,
-                paddingHorizontal: 10,
+                minWidth: 76,
+                height: 42,
+                paddingHorizontal: 12,
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.8)',
-                borderRadius: 5,
-                backgroundColor: '#102765',
+                borderWidth: 2,
+                borderColor: COLORS.primary,
+                borderRadius: 9,
+                backgroundColor: '#091849',
                 opacity: defeated ? 0.5 : pressed ? 0.8 : 1,
               })}
             >
-              <Text style={{ color: '#fff', fontFamily: 'Georgia', fontSize: 13, fontWeight: '700' }}>
+              <Text style={{ color: COLORS.primary, fontFamily: 'Georgia', fontSize: 15, fontWeight: '800' }}>
                 {game.paused ? 'Resume' : 'Pause'}
               </Text>
             </Pressable>
           </View>
-          <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 3, paddingHorizontal: 2 }}>
-            <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '800', textShadowColor: '#071136', textShadowRadius: 3 }}>TIER {game.tier}</Text>
-            <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '700', textShadowColor: '#071136', textShadowRadius: 3 }}>
-              {game.mobs.length} on field · {game.queue.length} incoming
-            </Text>
-            <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '800', textShadowColor: '#071136', textShadowRadius: 3 }}>
-              Score {game.score}
-            </Text>
+          <View style={{
+            width: '100%',
+            flexDirection: 'row',
+            alignItems: 'stretch',
+            marginTop: 5,
+            marginBottom: 2,
+            padding: 5,
+            borderWidth: 1,
+            borderColor: 'rgba(240,215,109,0.75)',
+            borderRadius: 10,
+            backgroundColor: 'rgba(4,15,44,0.9)',
+          }}>
+            <View style={{ flex: 0.8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+              <Text style={{ color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 }}>WAVE</Text>
+              <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '900', marginTop: 1 }}>{game.tier}</Text>
+            </View>
+            <View style={{ width: 1, marginVertical: 3, backgroundColor: 'rgba(255,255,255,0.22)' }} />
+            <View style={{ flex: 1.1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+              <Text style={{ color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 }}>MONSTERS</Text>
+              <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '800', marginTop: 2, textAlign: 'center' }}>
+                {game.mobs.length} field · {game.queue.length} next
+              </Text>
+            </View>
+            <View style={{ width: 1, marginVertical: 3, backgroundColor: 'rgba(255,255,255,0.22)' }} />
+            <View style={{ flex: 1.1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+              <Text style={{ color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 }}>SCORE / BEST</Text>
+              <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '900', marginTop: 2, textAlign: 'center' }}>
+                {game.score} / {personalBest === null ? '—' : personalBest}
+              </Text>
+            </View>
           </View>
 
           <View
@@ -1081,6 +1134,17 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
           {defeated && (
             <View style={[styles.card, { width: '100%', alignItems: 'center', marginTop: 12, padding: 12 }]}>
               <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: '800' }}>The castle has fallen</Text>
+              <Text style={{ color: COLORS.text, fontWeight: '700', marginTop: 8 }}>
+                Score: {game.score}
+              </Text>
+              <Text style={{ color: COLORS.primary, fontWeight: '700', marginTop: 4 }}>
+                Highest score: {Math.max(personalBest ?? 0, game.score)}
+              </Text>
+              {personalBestError ? (
+                <Text style={{ color: COLORS.danger, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                  {personalBestError}
+                </Text>
+              ) : null}
               <Text style={{ color: COLORS.muted, marginVertical: 7 }}>{saveStatus}</Text>
               <AppButton title="Play again" onPress={restart} />
               <AppButton

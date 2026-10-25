@@ -1,6 +1,6 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, BackHandler, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, {
@@ -42,6 +42,9 @@ const DEFAULT_AUDIO_SETTINGS = {
   musicVolume: 35,
   soundEffectsVolume: 100,
   towerDefenseGuide: true,
+  towerDefenseGuidePrompted: false,
+  pianoManGuide: true,
+  pianoManGuidePrompted: false,
 };
 
 const SILENT_SCREENS = [
@@ -164,6 +167,35 @@ export default function App() {
     ]
   );
 
+  const handleHardwareBack = useCallback(() => {
+    const previousScreen = {
+      login: 'splash',
+      signup: 'splash',
+      mainmenu: 'splash',
+      playmenu: 'mainmenu',
+      settings: 'mainmenu',
+      minigame: 'mainmenu',
+      goal: 'playmenu',
+      stats: 'mainmenu',
+      profile: 'mainmenu',
+      musiclesson: 'playmenu',
+      pianoman: 'minigame',
+      towerdefense: 'minigame',
+    }[displayScreen];
+
+    if (!previousScreen) return false;
+    navigate(previousScreen);
+    return true;
+  }, [displayScreen, navigate]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handleHardwareBack
+    );
+    return () => subscription.remove();
+  }, [handleHardwareBack]);
+
   // Animate the incoming screen.
   useEffect(() => {
     if (!authReady || !transitioning.current) {
@@ -262,6 +294,21 @@ export default function App() {
               typeof parsed.towerDefenseGuide === 'boolean'
                 ? parsed.towerDefenseGuide
                 : DEFAULT_AUDIO_SETTINGS.towerDefenseGuide,
+
+            towerDefenseGuidePrompted:
+              typeof parsed.towerDefenseGuidePrompted === 'boolean'
+                ? parsed.towerDefenseGuidePrompted
+                : DEFAULT_AUDIO_SETTINGS.towerDefenseGuidePrompted,
+
+            pianoManGuide:
+              typeof parsed.pianoManGuide === 'boolean'
+                ? parsed.pianoManGuide
+                : DEFAULT_AUDIO_SETTINGS.pianoManGuide,
+
+            pianoManGuidePrompted:
+              typeof parsed.pianoManGuidePrompted === 'boolean'
+                ? parsed.pianoManGuidePrompted
+                : DEFAULT_AUDIO_SETTINGS.pianoManGuidePrompted,
           });
         }
       } catch (error) {

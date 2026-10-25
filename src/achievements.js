@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
 const GUEST_HISTORY_KEY = 'keystrike-guest-game-history';
@@ -60,6 +60,15 @@ export async function recordGameResult(mode, result, resultId = createResultId()
     const stats = statsSnapshot.exists() ? statsSnapshot.data() : {};
     const stored = achievementsSnapshot.exists() ? achievementsSnapshot.data() : {};
     const progress = stored.progress || {};
+    const songHighScores = { ...(stats.songHighScores || {}) };
+    if (mode === 'pianoMan' && result.songTitle && result.difficulty) {
+      const songScores = { ...(songHighScores[result.songTitle] || {}) };
+      songScores[result.difficulty] = Math.max(
+        Number(songScores[result.difficulty]) || 0,
+        score
+      );
+      songHighScores[result.songTitle] = songScores;
+    }
     const completedModes = { ...(progress.completedModes || {}), [mode]: true };
     const nextProgress = {
       ...progress,
@@ -96,6 +105,7 @@ export async function recordGameResult(mode, result, resultId = createResultId()
       ...(mode === 'towerDefense' ? {
         highestTier: Math.max(stats.highestTier || 0, Number(result.highestTier) || 0),
       } : {}),
+      ...(mode === 'pianoMan' ? { songHighScores } : {}),
       lastPlayedAt: serverTimestamp(),
     }, { merge: true });
     transaction.set(achievementsRef, {
@@ -136,8 +146,18 @@ export async function getGuestGameStats() {
       perfectLessons: 0,
       songsCompleted: 0,
       highestTier: 0,
+      songHighScores: {},
     };
     const score = Math.max(0, Number(entry.result.score) || 0);
+    const songHighScores = { ...(current.songHighScores || {}) };
+    if (entry.mode === 'pianoMan' && entry.result.songTitle && entry.result.difficulty) {
+      const songScores = { ...(songHighScores[entry.result.songTitle] || {}) };
+      songScores[entry.result.difficulty] = Math.max(
+        Number(songScores[entry.result.difficulty]) || 0,
+        score
+      );
+      songHighScores[entry.result.songTitle] = songScores;
+    }
     statsByMode[entry.mode] = {
       ...current,
       gamesPlayed: current.gamesPlayed + 1,
@@ -147,9 +167,34 @@ export async function getGuestGameStats() {
       perfectLessons: current.perfectLessons + (entry.mode === 'pianoLesson' && entry.result.perfect ? 1 : 0),
       songsCompleted: current.songsCompleted + (entry.mode === 'pianoMan' ? 1 : 0),
       highestTier: Math.max(current.highestTier, Number(entry.result.highestTier) || 0),
+      songHighScores,
     };
     return statsByMode;
   }, {});
+}
+
+export async function getPianoManHighScores(songTitle) {
+  if (auth.currentUser) {
+    const statsSnapshot = await getDoc(doc(db, 'users', auth.currentUser.uid, 'gameStats', 'pianoMan'));
+    return statsSnapshot.exists()
+      ? statsSnapshot.data().songHighScores?.[songTitle] || {}
+      : {};
+  }
+
+  const guestStats = await getGuestGameStats();
+  return guestStats.pianoMan?.songHighScores?.[songTitle] || {};
+}
+
+export async function getTowerDefenseHighScore() {
+  if (auth.currentUser) {
+    const statsSnapshot = await getDoc(doc(db, 'users', auth.currentUser.uid, 'gameStats', 'towerDefense'));
+    return statsSnapshot.exists()
+      ? Number(statsSnapshot.data().bestScore) || 0
+      : 0;
+  }
+
+  const guestStats = await getGuestGameStats();
+  return Number(guestStats.towerDefense?.bestScore) || 0;
 }
 
 export async function getGuestAchievementData() {
