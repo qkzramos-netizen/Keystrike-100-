@@ -421,8 +421,6 @@ function Minigame({
   }, []);
 
   useEffect(() => {
-    if (!fontsLoaded && !fontError) return undefined;
-
     Animated.parallel([
       Animated.timing(headingOpacity, {
         toValue: 1,

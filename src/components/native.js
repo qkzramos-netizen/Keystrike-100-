@@ -212,13 +212,15 @@ export function Page({
       {backgroundImage && (
         <ImageBackground
           source={backgroundImage}
-          resizeMode="contain"
+          resizeMode="cover"
+          pointerEvents="none"
           style={{
             position: 'absolute',
             top: 0,
             right: 0,
             bottom: 0,
             left: 0,
+            zIndex: 0,
           }}
         >
           <View
@@ -240,6 +242,7 @@ export function Page({
             width: '100%',
             alignSelf: 'stretch',
             backgroundColor: 'transparent',
+            zIndex: 1,
           },
         ]}
       >

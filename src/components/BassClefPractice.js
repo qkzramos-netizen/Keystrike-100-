@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
+  ScrollView,
   Text,
   View,
   useWindowDimensions,
@@ -244,17 +245,26 @@ function BassClefPractice({ onBack, onComplete }) {
         onPress={answerMode ? reset : onBack}
       />
 
-      <View
-        style={{
-          width: '100%',
-          maxWidth: 390,
-          backgroundColor: '#000',
-          borderWidth: 1,
-          borderColor: '#333',
-          borderRadius: 24,
-          padding: 18,
+      <ScrollView
+        style={{ flex: 1, width: '100%' }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
+        showsVerticalScrollIndicator={false}
       >
+        <View
+          style={{
+            width: '100%',
+            maxWidth: 390,
+            backgroundColor: '#000',
+            borderWidth: 1,
+            borderColor: '#333',
+            borderRadius: 24,
+            padding: 18,
+          }}
+        >
         {!answerMode ? (
           <>
             <Text
@@ -361,7 +371,7 @@ function BassClefPractice({ onBack, onComplete }) {
               <Text style={{ color: GOLD, fontSize: 12, fontWeight: '800' }}>
                 {completed ? practiceNotes.length : index + 1}/{practiceNotes.length}
               </Text>
-            </View>
+              </View>
 
             <View
               style={{
@@ -468,7 +478,7 @@ function BassClefPractice({ onBack, onComplete }) {
                     </View>
                   );
                 })}
-              </View>
+                </View>
             </View>
 
             <Text
@@ -593,6 +603,7 @@ function BassClefPractice({ onBack, onComplete }) {
           </>
         )}
       </View>
+      </ScrollView>
     </View>
   );
 }

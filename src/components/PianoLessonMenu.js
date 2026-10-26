@@ -5,7 +5,9 @@ import {
   Easing,
   Image,
   Pressable,
+  ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -41,6 +43,7 @@ const LESSONS = [
 ];
 
 export default function PianoLessonMenu({ onSelectLesson }) {
+  const { height } = useWindowDimensions();
   const [selectedMode, setSelectedMode] = useState(null);
   const [transitioning, setTransitioning] = useState(false);
 
@@ -66,6 +69,10 @@ export default function PianoLessonMenu({ onSelectLesson }) {
   ).current;
 
   const titleTranslateY = useRef(new Animated.Value(0)).current;
+  const compactLayout = height < 640;
+  const titleFont = fontsLoaded ? 'Cinzel_700Bold' : 'Georgia';
+  const interfaceFont = fontsLoaded ? 'Montserrat_700Bold' : 'Georgia';
+  const bodyFont = fontsLoaded ? 'Montserrat_400Regular' : 'Georgia';
 
   const selectLesson = (lesson, index) => {
     if (transitioning) return;
@@ -140,25 +147,27 @@ export default function PianoLessonMenu({ onSelectLesson }) {
     });
   };
 
-  if (!fontsLoaded) {
-    return null;
-  }
-
   return (
     <View
       style={{
         flex: 1,
         backgroundColor: 'rgba(8,8,18,0.82)',
-        paddingHorizontal: 22,
-        paddingVertical: 28,
-        justifyContent: 'center',
         overflow: 'hidden',
       }}
     >
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: 'center',
+          paddingHorizontal: 22,
+          paddingVertical: compactLayout ? 14 : 28,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
       <Animated.View
         style={{
           opacity: menuOpacity,
-          flex: 1,
           justifyContent: 'center',
         }}
       >
@@ -166,7 +175,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
         <Animated.View
           style={{
             alignItems: 'center',
-            marginBottom: 32,
+            marginBottom: compactLayout ? 18 : 32,
             transform: [{ translateY: titleTranslateY }],
           }}
         >
@@ -183,8 +192,8 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           <Text
             style={{
               color: '#D4AF37',
-              fontFamily: 'Cinzel_700Bold',
-              fontSize: 32,
+              fontFamily: titleFont,
+              fontSize: compactLayout ? 27 : 32,
               fontWeight: '900',
               textAlign: 'center',
               letterSpacing: 1.5,
@@ -196,7 +205,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           <Text
             style={{
               color: '#E0E0E0',
-              fontFamily: 'Montserrat_700Bold',
+              fontFamily: interfaceFont,
               fontSize: 13,
               textAlign: 'center',
               marginTop: 10,
@@ -209,7 +218,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           <Text
             style={{
               color: '#888888',
-              fontFamily: 'Montserrat_400Regular',
+              fontFamily: bodyFont,
               fontSize: 12,
               textAlign: 'center',
               marginTop: 7,
@@ -220,7 +229,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
         </Animated.View>
 
         {/* LESSON CARDS */}
-        <View style={{ gap: 15 }}>
+        <View style={{ gap: compactLayout ? 10 : 15 }}>
           {LESSONS.map((lesson, index) => {
             const isSelected = selectedMode === lesson.mode;
 
@@ -258,11 +267,11 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                   disabled={transitioning}
                   onPress={() => selectLesson(lesson, index)}
                   style={({ pressed }) => ({
-                    minHeight: 105,
+                    minHeight: compactLayout ? 88 : 105,
                     flexDirection: 'row',
                     alignItems: 'center',
-                    paddingVertical: 17,
-                    paddingHorizontal: 17,
+                    paddingVertical: compactLayout ? 12 : 17,
+                    paddingHorizontal: compactLayout ? 12 : 17,
                     borderRadius: 16,
 
                     backgroundColor: isSelected
@@ -292,8 +301,8 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                   {/* IMAGE ICON */}
                   <View
                     style={{
-                      width: 62,
-                      height: 62,
+                      width: compactLayout ? 52 : 62,
+                      height: compactLayout ? 52 : 62,
                       borderRadius: 14,
                       backgroundColor: isSelected
                         ? '#D4AF37'
@@ -302,15 +311,15 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                       borderColor: '#9C812B',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      marginRight: 16,
+                      marginRight: compactLayout ? 10 : 16,
                     }}
                   >
                     <Image
                       source={lesson.image}
                       resizeMode="contain"
                       style={{
-                        width: 42,
-                        height: 48,
+                        width: compactLayout ? 36 : 42,
+                        height: compactLayout ? 42 : 48,
                       }}
                     />
                   </View>
@@ -320,7 +329,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                     <Text
                       style={{
                         color: '#D4AF37',
-                        fontFamily: 'Montserrat_700Bold',
+                        fontFamily: interfaceFont,
                         fontSize: 10,
                         fontWeight: '900',
                         letterSpacing: 1.8,
@@ -333,7 +342,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                     <Text
                       style={{
                         color: '#FFFFFF',
-                        fontFamily: 'Montserrat_700Bold',
+                        fontFamily: interfaceFont,
                         fontSize: 17,
                         fontWeight: '800',
                         marginBottom: 5,
@@ -345,7 +354,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                     <Text
                       style={{
                         color: '#BDBDBD',
-                        fontFamily: 'Montserrat_400Regular',
+                        fontFamily: bodyFont,
                         fontSize: 11,
                         lineHeight: 18,
                       }}
@@ -358,7 +367,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
                   <Text
                     style={{
                       color: '#D4AF37',
-                      fontFamily: 'Montserrat_400Regular',
+                      fontFamily: bodyFont,
                       fontSize: 25,
                       fontWeight: '300',
                       marginLeft: 8,
@@ -376,7 +385,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
         <Text
           style={{
             color: '#777777',
-            fontFamily: 'Montserrat_700Bold',
+            fontFamily: interfaceFont,
             fontSize: 10,
             textAlign: 'center',
             marginTop: 28,
@@ -386,6 +395,7 @@ export default function PianoLessonMenu({ onSelectLesson }) {
           FOCUS • TIMING • PRECISION
         </Text>
       </Animated.View>
+      </ScrollView>
 
       {/* TRANSITION OVERLAY */}
       <Animated.View

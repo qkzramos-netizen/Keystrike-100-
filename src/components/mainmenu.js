@@ -13,12 +13,15 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withRepeat,
-  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { BackButton, ImageActionButton, Page, styles } from './native';
+import {
+  BackButton,
+  ImageActionButton,
+  Page,
+  styles,
+} from './native';
 
 const musicBackground = require('../../public/assets/background2.png');
 const piano = require('../../public/assets/piano.png');
@@ -29,19 +32,27 @@ const profile = require('../../public/assets/profile.png');
 const AnimatedView = Animated.View;
 const AnimatedText = Animated.Text;
 
-function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
+function MainMenu({
+  onNavigate,
+  isAuthenticated,
+  playButtonSound = () => {},
+}) {
   const [fontsLoaded, fontError] = useFonts({
     Montserrat_400Regular,
     Montserrat_700Bold,
     Montserrat_900Black,
   });
+
+  // Title animation.
   const titleOpacity = useSharedValue(0);
   const titleY = useSharedValue(12);
   const titleScale = useSharedValue(0.94);
 
+  // Menu buttons animation.
   const menuOpacity = useSharedValue(0);
   const menuY = useSharedValue(18);
 
+  // Subtitle animation.
   const subtitleOpacity = useSharedValue(0);
   const subtitleY = useSharedValue(6);
 
@@ -66,23 +77,45 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
   useEffect(() => {
     if (!fontsLoaded && !fontError) return undefined;
 
-    titleOpacity.value = withTiming(1, { duration: 400 });
-    titleY.value = withSpring(0, { damping: 14, stiffness: 110 });
-    titleScale.value = withSpring(1, { damping: 12, stiffness: 100 });
+    // Title fades in and gently scales up.
+    titleOpacity.value = withTiming(1, {
+      duration: 400,
+    });
 
+    titleY.value = withSpring(0, {
+      damping: 14,
+      stiffness: 110,
+    });
+
+    titleScale.value = withSpring(1, {
+      damping: 12,
+      stiffness: 100,
+    });
+
+    // Menu buttons fade in and slide upward.
     menuOpacity.value = withDelay(
       140,
-      withTiming(1, { duration: 420 })
-    );
-    menuY.value = withDelay(
-      140,
-      withSpring(0, { damping: 16, stiffness: 100 })
+      withTiming(1, {
+        duration: 420,
+      })
     );
 
+    menuY.value = withDelay(
+      140,
+      withSpring(0, {
+        damping: 16,
+        stiffness: 100,
+      })
+    );
+
+    // Subtitle appears last.
     subtitleOpacity.value = withDelay(
       360,
-      withTiming(1, { duration: 350 })
+      withTiming(1, {
+        duration: 350,
+      })
     );
+
     subtitleY.value = withDelay(
       360,
       withTiming(0, {
@@ -108,38 +141,58 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
   };
 
   if (!fontsLoaded && !fontError) return null;
-  const displayFont = fontsLoaded ? 'Montserrat_900Black' : 'Georgia';
-  const interfaceFont = fontsLoaded ? 'Montserrat_700Bold' : 'Georgia';
-  const bodyFont = fontsLoaded ? 'Montserrat_400Regular' : 'Georgia';
+
+  const displayFont = fontsLoaded
+    ? 'Montserrat_900Black'
+    : 'Georgia';
+
+  const interfaceFont = fontsLoaded
+    ? 'Montserrat_700Bold'
+    : 'Georgia';
+
+  const bodyFont = fontsLoaded
+    ? 'Montserrat_400Regular'
+    : 'Georgia';
 
   return (
     <Page
       backgroundImage={musicBackground}
-      overlayColor="rgba(1, 1, 32, 0.8)"
+      overlayColor="rgba(0, 0, 32, 0.8)"
       style={{ justifyContent: 'center' }}
       contentStyle={{ maxWidth: 420 }}
     >
-      <BackButton onPress={() => navigate('splash')} />
+      <BackButton
+        onPress={() => navigate('splash')}
+      />
 
-      <AnimatedText style={[
-        styles.title,
-        {
-          fontFamily: displayFont,
-          fontSize: 46,
-          fontWeight: '900',
-          letterSpacing: 1.8,
-          textShadowColor: 'rgba(127, 168, 255, 0.62)',
-          textShadowOffset: { width: 0, height: 0 },
-          textShadowRadius: 12,
-        },
-        titleStyle,
-      ]}>
+      <AnimatedText
+        style={[
+          styles.title,
+          {
+            fontFamily: displayFont,
+            fontSize: 46,
+            fontWeight: '900',
+            letterSpacing: 1.8,
+            textShadowColor: 'rgba(127, 168, 255, 0.62)',
+            textShadowOffset: {
+              width: 0,
+              height: 0,
+            },
+            textShadowRadius: 12,
+          },
+          titleStyle,
+        ]}
+      >
         Main Menu
       </AnimatedText>
 
       <AnimatedView
         style={[
-          { width: '100%', maxWidth: 280, marginTop: 12 },
+          {
+            width: '100%',
+            maxWidth: 280,
+            marginTop: 12,
+          },
           menuStyle,
         ]}
       >
@@ -148,7 +201,11 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
           image={piano}
           tint="rgba(5, 224, 97, 0.78)"
           imageOpacity={0.2}
-          textStyle={{ fontFamily: interfaceFont, fontWeight: '700', letterSpacing: 0.8 }}
+          textStyle={{
+            fontFamily: interfaceFont,
+            fontWeight: '700',
+            letterSpacing: 0.8,
+          }}
           onPress={() => navigate('playmenu')}
         />
 
@@ -157,7 +214,11 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
           image={achievements}
           tint="rgba(214, 158, 3, 0.78)"
           imageOpacity={0.4}
-          textStyle={{ fontFamily: interfaceFont, fontWeight: '700', letterSpacing: 0.8 }}
+          textStyle={{
+            fontFamily: interfaceFont,
+            fontWeight: '700',
+            letterSpacing: 0.8,
+          }}
           onPress={() => navigate('stats')}
         />
 
@@ -166,7 +227,11 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
           image={settings}
           tint="rgba(3, 147, 214, 0.78)"
           imageOpacity={0.4}
-          textStyle={{ fontFamily: interfaceFont, fontWeight: '700', letterSpacing: 0.8 }}
+          textStyle={{
+            fontFamily: interfaceFont,
+            fontWeight: '700',
+            letterSpacing: 0.8,
+          }}
           onPress={() => navigate('settings')}
         />
 
@@ -175,7 +240,11 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
           image={profile}
           tint="rgba(255, 81, 0, 0.88)"
           imageOpacity={0.4}
-          textStyle={{ fontFamily: interfaceFont, fontWeight: '700', letterSpacing: 0.8 }}
+          textStyle={{
+            fontFamily: interfaceFont,
+            fontWeight: '700',
+            letterSpacing: 0.8,
+          }}
           onPress={() => navigate('profile')}
         />
       </AnimatedView>

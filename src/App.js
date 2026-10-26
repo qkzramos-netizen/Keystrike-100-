@@ -1,6 +1,6 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, {
@@ -96,7 +96,6 @@ export default function App() {
     opacity: transitionOpacity.value,
   }));
 
-  // Called on the React Native JS runtime after the transition finishes.
   const finishTransition = useCallback(() => {
     transitioning.current = false;
     setScreen(displayScreen);
@@ -184,6 +183,7 @@ export default function App() {
     }[displayScreen];
 
     if (!previousScreen) return false;
+
     navigate(previousScreen);
     return true;
   }, [displayScreen, navigate]);
@@ -193,10 +193,10 @@ export default function App() {
       'hardwareBackPress',
       handleHardwareBack
     );
+
     return () => subscription.remove();
   }, [handleHardwareBack]);
 
-  // Animate the incoming screen.
   useEffect(() => {
     if (!authReady || !transitioning.current) {
       return;
@@ -237,7 +237,6 @@ export default function App() {
     finishTransition,
   ]);
 
-  // Cancel animations on unmount.
   useEffect(() => {
     return () => {
       cancelAnimation(screenOpacity);
@@ -276,18 +275,12 @@ export default function App() {
 
             musicVolume:
               Number.isFinite(parsed.musicVolume)
-                ? Math.max(
-                    0,
-                    Math.min(100, parsed.musicVolume)
-                  )
+                ? Math.max(0, Math.min(100, parsed.musicVolume))
                 : DEFAULT_AUDIO_SETTINGS.musicVolume,
 
             soundEffectsVolume:
               Number.isFinite(parsed.soundEffectsVolume)
-                ? Math.max(
-                    0,
-                    Math.min(100, parsed.soundEffectsVolume)
-                  )
+                ? Math.max(0, Math.min(100, parsed.soundEffectsVolume))
                 : DEFAULT_AUDIO_SETTINGS.soundEffectsVolume,
 
             towerDefenseGuide:
@@ -367,6 +360,7 @@ export default function App() {
   // Apply the configured background music volume.
   useEffect(() => {
     const volume = Number(audioSettings.musicVolume);
+
     const safeVolume = Number.isFinite(volume)
       ? Math.max(0, Math.min(100, volume)) / 100
       : DEFAULT_AUDIO_SETTINGS.musicVolume / 100;
@@ -380,7 +374,10 @@ export default function App() {
 
   // Play or pause background music according to settings and screen.
   useEffect(() => {
-    if (!audioSettings.music || SILENT_SCREENS.includes(displayScreen)) {
+    if (
+      !audioSettings.music ||
+      SILENT_SCREENS.includes(displayScreen)
+    ) {
       backgroundMusicPlayer.pause();
       return;
     }
@@ -397,7 +394,11 @@ export default function App() {
   ]);
 
   const updateAudioSettings = useCallback((updates) => {
-    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+    if (
+      !updates ||
+      typeof updates !== 'object' ||
+      Array.isArray(updates)
+    ) {
       console.warn('Audio settings update must be an object.');
       return;
     }
@@ -420,13 +421,13 @@ export default function App() {
 
     switch (displayScreen) {
       case 'splash':
-        return (
-          <SplashScreen
-            onNavigate={navigate}
-            onStart={() => navigate('mainmenu')}
-          />
-        );
-
+  return (
+    <SplashScreen
+      onNavigate={navigate}
+      onStart={() => navigate('mainmenu')}
+      playButtonSound={playButtonSound}
+    />
+  );
       case 'login':
         return <Login {...commonProps} />;
 
@@ -468,28 +469,15 @@ export default function App() {
     }
   };
 
-  if (!authReady || !audioSettingsLoaded) {
-    return (
-      <SafeAreaProvider>
-        <View
-          style={{
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#080914',
-          }}
-        >
-          <StatusBar style="light" translucent backgroundColor="transparent" />
-          <ActivityIndicator size="large" color="#ffffff" />
-        </View>
-      </SafeAreaProvider>
-    );
-  }
 
   return (
     <SafeAreaProvider>
       <View style={{ flex: 1, backgroundColor: '#080914' }}>
-        <StatusBar style="light" translucent backgroundColor="transparent" />
+        <StatusBar
+          style="light"
+          translucent
+          backgroundColor="transparent"
+        />
 
         <Animated.View
           style={animatedScreenStyle}
@@ -508,4 +496,5 @@ export default function App() {
       </View>
     </SafeAreaProvider>
   );
+
 }

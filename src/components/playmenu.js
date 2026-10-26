@@ -6,21 +6,38 @@ import {
   Montserrat_700Bold,
   Montserrat_900Black,
 } from '@expo-google-fonts/montserrat';
-import { BackButton, ImageActionButton, Page, styles } from './native';
+import {
+  BackButton,
+  ImageActionButton,
+  Page,
+  styles,
+} from './native';
 
 const musicBackground = require('../../public/assets/background2.png');
 const piano = require('../../public/assets/piano.png');
 const achievements = require('../../public/assets/achievements.png');
 const minigame = require('../../public/assets/minigame.png');
 
-function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
+function PlayMenu({
+  onNavigate,
+  playButtonSound = () => {},
+}) {
   const [fontsLoaded, fontError] = useFonts({
     Montserrat_700Bold,
     Montserrat_900Black,
   });
-  const containerScale = useRef(new Animated.Value(0.94)).current;
-  const containerOpacity = useRef(new Animated.Value(0)).current;
-  const pulseScale = useRef(new Animated.Value(1)).current;
+
+  const containerScale = useRef(
+    new Animated.Value(0.94)
+  ).current;
+
+  const containerOpacity = useRef(
+    new Animated.Value(0)
+  ).current;
+
+  const pulseScale = useRef(
+    new Animated.Value(1)
+  ).current;
 
   useEffect(() => {
     if (!fontsLoaded && !fontError) return undefined;
@@ -32,6 +49,7 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
         easing: Easing.out(Easing.back(1.3)),
         useNativeDriver: true,
       }),
+
       Animated.timing(containerOpacity, {
         toValue: 1,
         duration: 450,
@@ -50,6 +68,7 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
+
         Animated.timing(pulseScale, {
           toValue: 1,
           duration: 1800,
@@ -65,7 +84,13 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
       entrance.stop();
       pulse.stop();
     };
-  }, [containerScale, containerOpacity, pulseScale, fontsLoaded, fontError]);
+  }, [
+    containerScale,
+    containerOpacity,
+    pulseScale,
+    fontsLoaded,
+    fontError,
+  ]);
 
   const navigate = (screen) => {
     playButtonSound();
@@ -73,8 +98,14 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
   };
 
   if (!fontsLoaded && !fontError) return null;
-  const displayFont = fontsLoaded ? 'Montserrat_900Black' : 'Georgia';
-  const interfaceFont = fontsLoaded ? 'Montserrat_700Bold' : 'Georgia';
+
+  const displayFont = fontsLoaded
+    ? 'Montserrat_900Black'
+    : 'Georgia';
+
+  const interfaceFont = fontsLoaded
+    ? 'Montserrat_700Bold'
+    : 'Georgia';
 
   return (
     <Page
@@ -83,7 +114,9 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
       style={{ justifyContent: 'center' }}
       contentStyle={{ maxWidth: 420 }}
     >
-      <BackButton onPress={() => navigate('mainmenu')} />
+      <BackButton
+        onPress={() => navigate('mainmenu')}
+      />
 
       <Animated.View
         style={{
@@ -96,26 +129,45 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
           ],
         }}
       >
-        <Text style={[styles.title, {
-          fontFamily: displayFont,
-          fontSize: 38,
-          fontWeight: '900',
-          letterSpacing: 1.2,
-          textShadowColor: 'rgba(127, 168, 255, 0.5)',
-          textShadowOffset: { width: 0, height: 0 },
-          textShadowRadius: 9,
-          marginBottom: 16,
-        }]}>
+        <Text
+          style={[
+            styles.title,
+            {
+              fontFamily: displayFont,
+              fontSize: 38,
+              fontWeight: '900',
+              letterSpacing: 1.2,
+              textShadowColor: 'rgba(127, 168, 255, 0.5)',
+              textShadowOffset: {
+                width: 0,
+                height: 0,
+              },
+              textShadowRadius: 9,
+              marginBottom: 16,
+            },
+          ]}
+        >
           Play Menu
         </Text>
 
-        <View style={{ width: '100%', maxWidth: 280, gap: 8 }}>
+        <View
+          style={{
+            width: '100%',
+            maxWidth: 280,
+            gap: 8,
+          }}
+        >
           <ImageActionButton
             title="Music Lesson"
             image={piano}
             tint="rgba(5, 224, 97, 0.78)"
             imageOpacity={0.2}
-            textStyle={{ fontFamily: interfaceFont, fontWeight: '700', fontSize: 18, letterSpacing: 0.45 }}
+            textStyle={{
+              fontFamily: interfaceFont,
+              fontWeight: '700',
+              fontSize: 18,
+              letterSpacing: 0.45,
+            }}
             onPress={() => navigate('musiclesson')}
           />
 
@@ -124,7 +176,12 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
             image={achievements}
             tint="rgba(214, 158, 3, 0.78)"
             imageOpacity={0.4}
-            textStyle={{ fontFamily: interfaceFont, fontWeight: '700', fontSize: 18, letterSpacing: 0.45 }}
+            textStyle={{
+              fontFamily: interfaceFont,
+              fontWeight: '700',
+              fontSize: 18,
+              letterSpacing: 0.45,
+            }}
             onPress={() => navigate('goal')}
           />
 
@@ -133,7 +190,12 @@ function PlayMenu({ onNavigate, playButtonSound = () => {} }) {
             image={minigame}
             tint="#087eaa"
             imageOpacity={0.25}
-            textStyle={{ fontFamily: interfaceFont, fontWeight: '700', fontSize: 18, letterSpacing: 0.45 }}
+            textStyle={{
+              fontFamily: interfaceFont,
+              fontWeight: '700',
+              fontSize: 18,
+              letterSpacing: 0.45,
+            }}
             onPress={() => navigate('minigame')}
           />
         </View>

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  Image,
   Pressable,
+  ScrollView,
   Text,
   View,
   useWindowDimensions,
@@ -198,6 +198,15 @@ function ChordsPractice({ onBack, onComplete }) {
       }}
     >
       <BackButton label="‹  Back" onPress={() => runTransition(answerMode ? reset : onBack)} />
+      <ScrollView
+        style={{ flex: 1, width: '100%' }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        showsVerticalScrollIndicator={false}
+      >
       <View style={{ width: '100%', maxWidth: 390, backgroundColor: '#000', borderWidth: 1, borderColor: '#333', borderRadius: 24, padding: 18 }}>
         {!answerMode ? (
           <>
@@ -288,6 +297,7 @@ function ChordsPractice({ onBack, onComplete }) {
           </>
         )}
       </View>
+      </ScrollView>
     </Animated.View>
   );
 }

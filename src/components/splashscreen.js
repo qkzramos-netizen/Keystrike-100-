@@ -1,5 +1,12 @@
+
 import React, { useEffect, useRef } from 'react';
-import { Text, View, StyleSheet, Pressable, Image } from 'react-native';
+import {
+  Text,
+  View,
+  StyleSheet,
+  Pressable,
+  ImageBackground,
+} from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -16,24 +23,35 @@ const splash = require('../../public/assets/splashscreen.gif');
 const musicBackground = require('../../public/assets/background2.png');
 const splashscreenbg = require('../../public/appmusic/splashscreenbg.mp3');
 const splashscreenlogo = require('../../public/appmusic/splashscreenlogo.mp3');
+
 const CIRCLE_SIZE = 280;
 
-export default function SplashScreen({ onNavigate, playButtonSound = () => {} }) {
+export default function SplashScreen({
+  onNavigate,
+  playButtonSound = () => {},
+}) {
   const splashMusic = useAudioPlayer(splashscreenbg);
   const logoMusic = useAudioPlayer(splashscreenlogo);
 
+  // Original entrance animation values.
   const imageOpacity = useSharedValue(0);
   const imageScale = useSharedValue(0.88);
+
   const contentOpacity = useSharedValue(0);
   const contentY = useSharedValue(18);
+
   const buttonScale = useSharedValue(0.96);
   const promptOpacity = useSharedValue(0);
   const promptScale = useSharedValue(0.98);
+
   const screenOpacity = useSharedValue(1);
+
   const circleScale = useSharedValue(0);
   const circleOpacity = useSharedValue(0);
+
   const hitScale = useSharedValue(0.2);
   const hitOpacity = useSharedValue(0);
+
   const flashOpacity = useSharedValue(0);
 
   const startedRef = useRef(false);
@@ -54,10 +72,11 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
       musicTimerRef.current = setTimeout(() => {
         try {
           logoMusic.play();
+
           let step = 0;
 
           fadeTimerRef.current = setInterval(() => {
-            step++;
+            step += 1;
             logoMusic.volume = Math.min(step / 20, 1);
 
             if (step >= 20) {
@@ -66,35 +85,54 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
             }
           }, 100);
         } catch (error) {
-          console.warn('Unable to fade in splash logo music:', error);
+          console.warn(
+            'Unable to fade in splash logo music:',
+            error
+          );
         }
       }, 2000);
     } catch (error) {
       console.warn('Unable to start splash music:', error);
     }
 
+    // GIF fades in and zooms into position.
     imageOpacity.value = withTiming(1, {
       duration: 1800,
       easing: Easing.out(Easing.cubic),
     });
+
     imageScale.value = withTiming(1, {
       duration: 1800,
       easing: Easing.out(Easing.back(1.05)),
     });
 
+    // Tagline and prompt rise into view.
     contentOpacity.value = withDelay(
       500,
-      withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) }),
-    );
-    contentY.value = withDelay(
-      500,
-      withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) }),
-    );
-    buttonScale.value = withDelay(
-      1200,
-      withTiming(1, { duration: 700, easing: Easing.out(Easing.back(1.05)) }),
+      withTiming(1, {
+        duration: 700,
+        easing: Easing.out(Easing.cubic),
+      })
     );
 
+    contentY.value = withDelay(
+      500,
+      withTiming(0, {
+        duration: 700,
+        easing: Easing.out(Easing.cubic),
+      })
+    );
+
+    // Prompt container gently scales into position.
+    buttonScale.value = withDelay(
+      1200,
+      withTiming(1, {
+        duration: 700,
+        easing: Easing.out(Easing.back(1.05)),
+      })
+    );
+
+    // Prompt fades and pulses continuously.
     promptOpacity.value = withDelay(
       1300,
       withTiming(1, { duration: 500 }, (finished) => {
@@ -105,10 +143,10 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
               easing: Easing.inOut(Easing.ease),
             }),
             -1,
-            true,
+            true
           );
         }
-      }),
+      })
     );
 
     promptScale.value = withDelay(
@@ -119,8 +157,8 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
           easing: Easing.inOut(Easing.ease),
         }),
         -1,
-        true,
-      ),
+        true
+      )
     );
 
     return () => {
@@ -140,8 +178,16 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
         flashOpacity,
       ].forEach(cancelAnimation);
 
-      if (musicTimerRef.current) clearTimeout(musicTimerRef.current);
-      if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
+      if (musicTimerRef.current) {
+        clearTimeout(musicTimerRef.current);
+      }
+
+      if (fadeTimerRef.current) {
+        clearInterval(fadeTimerRef.current);
+      }
+
+      splashMusic.pause();
+      logoMusic.pause();
     };
   }, [splashMusic, logoMusic]);
 
@@ -188,8 +234,14 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
 
     cancelAnimation(promptOpacity);
     cancelAnimation(promptScale);
-    promptOpacity.value = withTiming(0, { duration: 150 });
-    promptScale.value = withTiming(1, { duration: 150 });
+
+    promptOpacity.value = withTiming(0, {
+      duration: 150,
+    });
+
+    promptScale.value = withTiming(1, {
+      duration: 150,
+    });
 
     try {
       playButtonSound();
@@ -203,7 +255,11 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
     hitOpacity.value = 0;
     flashOpacity.value = 0;
 
-    circleOpacity.value = withTiming(1, { duration: 120 });
+    // Expanding circle transition.
+    circleOpacity.value = withTiming(1, {
+      duration: 120,
+    });
+
     circleScale.value = withTiming(9, {
       duration: 850,
       easing: Easing.in(Easing.cubic),
@@ -213,108 +269,145 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
       duration: 550,
       easing: Easing.in(Easing.cubic),
     });
+
     imageOpacity.value = withTiming(0, {
       duration: 500,
       easing: Easing.in(Easing.cubic),
     });
-    contentOpacity.value = withTiming(0, { duration: 350 });
 
-    hitOpacity.value = withDelay(850, withTiming(1, { duration: 100 }));
+    contentOpacity.value = withTiming(0, {
+      duration: 350,
+    });
+
+    hitOpacity.value = withDelay(
+      850,
+      withTiming(1, { duration: 100 })
+    );
+
     hitScale.value = withDelay(
       850,
       withTiming(1.8, {
         duration: 180,
         easing: Easing.out(Easing.cubic),
-      }),
+      })
     );
 
     flashOpacity.value = withDelay(
       850,
-      withTiming(0.65, { duration: 100 }),
+      withTiming(0.65, { duration: 100 })
     );
+
     flashOpacity.value = withDelay(
       1030,
-      withTiming(0, { duration: 300 }),
+      withTiming(0, { duration: 300 })
     );
 
     screenOpacity.value = withDelay(
       1030,
       withTiming(0, { duration: 400 }, (finished) => {
-        if (finished) runOnJS(onNavigate)('mainmenu');
-      }),
+        if (finished) {
+          runOnJS(onNavigate)('mainmenu');
+        }
+      })
     );
   };
 
   return (
     <Animated.View style={[styles.screen, screenStyle]}>
-      <Image
+      <ImageBackground
         source={musicBackground}
         resizeMode="cover"
-        style={StyleSheet.absoluteFillObject}
-      />
+        style={styles.background}
+      >
+        <View
+          pointerEvents="none"
+          style={styles.backgroundOverlay}
+        />
 
-      <View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFillObject,
-          { backgroundColor: 'rgba(0, 0, 32, 0.8)' },
-        ]}
-      />
+        <Pressable
+          style={styles.fullScreenPressable}
+          onPress={handleStart}
+        >
+          <View style={styles.container}>
+            <Animated.Image
+              source={splash}
+              resizeMode="contain"
+              style={[styles.splashImage, imageStyle]}
+            />
 
-      <Pressable style={styles.fullScreenPressable} onPress={handleStart}>
-        <View style={styles.container}>
-          <Animated.Image
-            source={splash}
-            resizeMode="contain"
-            style={[styles.splashImage, imageStyle]}
-          />
+            <Animated.View
+              style={[styles.content, contentStyle]}
+              pointerEvents="none"
+            >
+              <Text style={styles.tagline}>
+                Build your rhythm. Master the keys.
+              </Text>
 
-          <Animated.View
-            style={[styles.content, contentStyle]}
-            pointerEvents="none"
-          >
-            <Text style={styles.tagline}>
-              Build your rhythm. Master the keys.
-            </Text>
+              <Animated.View
+                style={[styles.promptContainer, buttonStyle]}
+              >
+                <Animated.Text
+                  style={[styles.pressAnywhere, promptStyle]}
+                >
+                  PRESS ANYWHERE TO CONTINUE
+                </Animated.Text>
 
-            <Animated.View style={[styles.promptContainer, buttonStyle]}>
-              <Animated.Text style={[styles.pressAnywhere, promptStyle]}>
-                PRESS ANYWHERE TO CONTINUE
-              </Animated.Text>
-              <View style={styles.promptLine} />
+                <View style={styles.promptLine} />
+              </Animated.View>
             </Animated.View>
-          </Animated.View>
 
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.transitionCircle, circleStyle]}
-          />
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.transitionCircle, circleStyle]}
+            />
 
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.hitCircle, hitStyle]}
-          />
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.hitCircle, hitStyle]}
+            />
 
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.flash, flashStyle]}
-          />
-        </View>
-      </Pressable>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.flash, flashStyle]}
+            />
+          </View>
+        </Pressable>
+      </ImageBackground>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#050f47' },
-  fullScreenPressable: { flex: 1 },
+  screen: {
+    flex: 1,
+    backgroundColor: '#050f47',
+  },
+
+  // Keep the background fix that made the screen visible.
+  background: {
+    flex: 1,
+    width: '100%',
+  },
+
+  backgroundOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 32, 0.8)',
+  },
+
+  fullScreenPressable: {
+    flex: 1,
+  },
+
   container: {
     flex: 1,
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    position: 'relative',
   },
+
+  // Restored original GIF dimensions and positioning.
   splashImage: {
     width: 365,
     height: 900,
@@ -322,7 +415,14 @@ const styles = StyleSheet.create({
     marginTop: -200,
     zIndex: 1,
   },
-  content: { alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+
+  // Restored original content placement.
+  content: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+
   tagline: {
     color: '#FFFFFF',
     fontSize: 17,
@@ -334,7 +434,13 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 5,
   },
-  promptContainer: { alignItems: 'center', justifyContent: 'center', width: 320 },
+
+  promptContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 320,
+  },
+
   pressAnywhere: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -347,6 +453,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 12,
   },
+
   promptLine: {
     width: 90,
     height: 2,
@@ -355,25 +462,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCC8FF',
     opacity: 0.8,
   },
+
   transitionCircle: {
     position: 'absolute',
+    top: '50%',
+    left: '50%',
     width: CIRCLE_SIZE,
     height: CIRCLE_SIZE,
+    marginLeft: -CIRCLE_SIZE / 2,
+    marginTop: -CIRCLE_SIZE / 2,
     borderRadius: CIRCLE_SIZE / 2,
     backgroundColor: '#050f47',
     zIndex: 10,
+    elevation: 10,
   },
+
   hitCircle: {
     position: 'absolute',
+    top: '50%',
+    left: '50%',
     width: 110,
     height: 110,
+    marginLeft: -55,
+    marginTop: -55,
     borderRadius: 55,
     backgroundColor: '#050f47',
     zIndex: 11,
+    elevation: 11,
   },
+
   flash: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+    elevation: 0,
     backgroundColor: '#050f47',
     zIndex: 12,
+    elevation: 12,
   },
 });
