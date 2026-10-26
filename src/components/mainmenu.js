@@ -20,7 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BackButton, ImageActionButton, Page, styles } from './native';
 
-const musicBackground = require('../../public/assets/glowing-musical-pentagram-background-with-sound-notes_1017-31220.avif');
+const musicBackground = require('../../public/assets/background2.png');
 const piano = require('../../public/assets/piano.png');
 const achievements = require('../../public/assets/achievements.png');
 const settings = require('../../public/assets/settings.png');
@@ -115,7 +115,7 @@ function MainMenu({ onNavigate, isAuthenticated, playButtonSound = () => {} }) {
   return (
     <Page
       backgroundImage={musicBackground}
-      overlayColor="rgba(1, 1, 58, 0.8)"
+      overlayColor="rgba(1, 1, 32, 0.8)"
       style={{ justifyContent: 'center' }}
       contentStyle={{ maxWidth: 420 }}
     >

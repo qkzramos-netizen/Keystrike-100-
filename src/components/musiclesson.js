@@ -1,6 +1,6 @@
 
 import React,{useCallback,useEffect,useRef,useState} from 'react';
-import {Animated,Easing,Image,Modal,Pressable,Text,View,Alert} from 'react-native';
+import {Animated,Easing,Image,Modal,Pressable,Text,View} from 'react-native';
 import {useAudioPlayer} from 'expo-audio';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {recordGameResult,recordGuestGameResult} from '../achievements';
@@ -14,6 +14,9 @@ import BassClefPractice from './BassClefPractice';
 import ClefActivityMenu from './ClefActivityMenu';
 import BassClefLesson from './BassClefLesson';
 import PianoLessonList from './PianoLessonList';
+import ChordsClefLesson from './ChordsClefLesson';
+import ChordsPractice from './ChordsPractice';
+import {CHORD_IMAGES,CHORD_QUESTIONS} from './chordData';
 
 const TREBLE_QUESTIONS=[
   {note:'B4',answer:'B',options:['C','D','B']},
@@ -40,11 +43,6 @@ const BASS_QUESTIONS=[
   {note:'G3',answer:'G',options:['G','A','B']},
   {note:'A3',answer:'A',options:['A','B','C']},
 ];
-const CHORD_QUESTIONS=[
-  {note:'C Major',answer:'C',options:['C','G','A']},
-  {note:'G Major',answer:'G',options:['D','G','F']},
-  {note:'A Minor',answer:'A',options:['A','C','E']},
-];
 const NOTE_IMAGES={
   C4:require('../../public/note/C4.png'),
   D4:require('../../public/note/D4.png'),
@@ -66,9 +64,6 @@ const NOTE_IMAGES={
   F3:require('../../public/note/F2.png'),
   G3:require('../../public/note/G2.png'),
   A3:require('../../public/note/A2.png'),
-  'C Major':require('../../public/note/CMajor.png'),
-  'G Major':require('../../public/note/GMajor.png'),
-  'A Minor':require('../../public/note/AMinor.png'),
 };
 const LESSON_MUSIC={
   Treble:require('../../public/assets/music/clair.mp3'),
@@ -89,7 +84,7 @@ function RhythmButton({children,onPress,disabled,style,accessibilityLabel}){
 }
 
 function StaffCard({note,mode}){
-  const image=NOTE_IMAGES[note];
+  const image=mode==='Chords'?CHORD_IMAGES[note]:NOTE_IMAGES[note];
   return <View style={{width:'100%',aspectRatio:16/9,backgroundColor:'#d8d8d8',borderRadius:8,overflow:'hidden',alignItems:'center',justifyContent:'center'}}>{image?<Image source={image} resizeMode="contain" style={{width:'100%',height:'100%',alignSelf:'center'}}/>:<Text style={{color:'#555555',fontSize:16}}>{mode==='Chords'?`${note} chord image coming soon`:`${note} image coming soon`}</Text>}</View>;
 }
 
@@ -113,6 +108,8 @@ function MusicLesson({onNavigate,audioSettings,onAudioSettingsChange,playButtonS
   const [showTrebleLesson,setShowTrebleLesson]=useState(false);
   const [showTreblePractice,setShowTreblePractice]=useState(false);
   const [showBassLesson,setShowBassLesson]=useState(false);
+  const [showChordsLesson,setShowChordsLesson]=useState(false);
+  const [showChordsPractice,setShowChordsPractice]=useState(false);
   const [showLessonList,setShowLessonList]=useState(false);
 
   const resultSaved=useRef(false);
@@ -283,6 +280,7 @@ useEffect(() => {
       setLessonStarted(false);
       setShowTrebleLesson(false);setShowTreblePractice(false);
       setShowBassLesson(false);setShowBassPractice(false);
+      setShowChordsLesson(false);setShowChordsPractice(false);
       setShowActivityMenu(true);setShowLessonList(false);
       startLessonMusic(newMode);
     });
@@ -294,6 +292,7 @@ useEffect(() => {
       setLessonStarted(false);setComplete(false);setSelected(null);
       setShowTrebleLesson(false);setShowTreblePractice(false);
       setShowBassLesson(false);setShowBassPractice(false);
+      setShowChordsLesson(false);setShowChordsPractice(false);
       setShowActivityMenu(true);setShowLessonList(false);
     });
   };
@@ -305,6 +304,7 @@ useEffect(() => {
       setShowActivityMenu(false);
       setShowTrebleLesson(false);setShowTreblePractice(false);
       setShowBassLesson(false);setShowBassPractice(false);
+      setShowChordsLesson(false);setShowChordsPractice(false);
       setLessonStarted(true);
       startLessonMusic(mode);
     });
@@ -384,28 +384,22 @@ useEffect(() => {
         setLessonStarted(false);
       })}
       onLesson={()=>{
-        if(mode!=='Treble'&&mode!=='Bass'){
-          Alert.alert('Lesson not available yet',`${mode} Lesson has not been added yet.`);
-          return;
-        }
         runLocalTransition(()=>{
           playButtonSound();
           startLessonMusic(mode);
           setShowActivityMenu(false);
-          setShowLessonList(true);
+          if(mode==='Chords')setShowChordsLesson(true);
+          else setShowLessonList(true);
         });
       }}
       onPractice={()=>{
-        if(mode!=='Treble'&&mode!=='Bass'){
-          Alert.alert('Practice not available yet',`${mode} Practice has not been added yet.`);
-          return;
-        }
         runLocalTransition(()=>{
           playButtonSound();
           startLessonMusic(mode);
           setShowActivityMenu(false);
           if(mode==='Treble')setShowTreblePractice(true);
-          else setShowBassPractice(true);
+          else if(mode==='Bass')setShowBassPractice(true);
+          else setShowChordsPractice(true);
         });
       }}
       onQuiz={startQuiz}
@@ -448,6 +442,14 @@ useEffect(() => {
 
   if(showBassPractice)return renderLocalTransition(
     <BassClefPractice onBack={backToActivities} onComplete={backToActivities}/>
+  );
+
+  if(showChordsLesson)return renderLocalTransition(
+    <ChordsClefLesson onBack={backToActivities} onStartQuiz={backToActivities}/>
+  );
+
+  if(showChordsPractice)return renderLocalTransition(
+    <ChordsPractice onBack={backToActivities} onComplete={backToActivities}/>
   );
 
   if(showActivityMenu)return renderLocalTransition(
@@ -498,7 +500,7 @@ useEffect(() => {
           <Text style={{color:'#8E8E93',fontSize:12,marginLeft:18}}>BEST: {bestStreak}</Text>
         </View>
 
-        <Text style={{color:'#cccccc',fontSize:14,textAlign:'center',marginTop:22,marginBottom:12}}>What note is this?</Text>
+        <Text style={{color:'#cccccc',fontSize:14,textAlign:'center',marginTop:22,marginBottom:12}}>{mode==='Chords'?'Which chord is this?':'What note is this?'}</Text>
         <View style={{flex:1,justifyContent:'center'}}>
           <Animated.View style={{opacity:cardOpacity,transform:[{scale:cardScale}]}}>
             {question&&<StaffCard note={question.note} mode={mode}/>}
@@ -509,11 +511,11 @@ useEffect(() => {
           {question?.options.map(option=>{
             const chosen=selected===option;
             const correct=chosen&&option===question.answer;
-            return <RhythmButton key={option} disabled={selected!==null} onPress={()=>answerQuestion(option)} style={{flex:1,minHeight:52,marginHorizontal:5,borderRadius:8,backgroundColor:chosen?(correct?'#8b8000':'#8b0000'):'#2a2a2a',borderWidth:1,borderColor:chosen?(correct?'#d4af37':'#ff4d4d'):'#444444',opacity:selected!==null&&!chosen?0.55:1}}><Text style={{color:'#ffffff',fontSize:20,fontWeight:'800'}}>{option}</Text></RhythmButton>;
+            return <RhythmButton key={option} disabled={selected!==null} onPress={()=>answerQuestion(option)} style={{flex:1,minHeight:52,marginHorizontal:5,borderRadius:8,backgroundColor:chosen?(correct?'#8b8000':'#8b0000'):'#2a2a2a',borderWidth:1,borderColor:chosen?(correct?'#d4af37':'#ff4d4d'):'#444444',opacity:selected!==null&&!chosen?0.55:1}}><Text style={{color:'#ffffff',fontSize:mode==='Chords'?15:20,fontWeight:'800',textAlign:'center'}}>{option}</Text></RhythmButton>;
           })}
         </View>
 
-        <Text style={{color:'#d4af37',fontSize:12,fontWeight:'700',letterSpacing:1,textAlign:'center',marginBottom:8}}>TAP THE CORRECT NOTE</Text>
+        <Text style={{color:'#d4af37',fontSize:12,fontWeight:'700',letterSpacing:1,textAlign:'center',marginBottom:8}}>{mode==='Chords'?'TAP THE CORRECT CHORD':'TAP THE CORRECT NOTE'}</Text>
         {error?<Text accessibilityRole="alert" style={styles.error}>{error}</Text>:null}
       </View>
 

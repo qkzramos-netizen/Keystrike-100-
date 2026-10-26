@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Animated, BackHandler, Easing, Image, ImageBackground, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, BackHandler, Easing, Image, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getTowerDefenseHighScore, recordGameResult, recordGuestGameResult } from '../achievements';
@@ -7,6 +7,10 @@ import { auth } from '../firebase';
 import AccountSavePrompt from './AccountSavePrompt';
 import Keyboard from './Keyboard';
 import { AppButton, COLORS, styles } from './native';
+import TowerDefenseBackground, {
+  BattlefieldGround,
+  PianomanDestination,
+} from './TowerDefenseBackground';
 
 const NOTES = ['C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'E#', 'Fb', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B', 'B#', 'Cb'];
 const NOTE_PITCH = {
@@ -27,7 +31,7 @@ const POOFS = [
   require('../../public/assets/poof2.gif'),
   require('../../public/assets/poof3.gif'),
 ];
-const BACKGROUND = require('../../public/bg.jpg');
+const IMPACT_PARTICLE = require('../../public/background/processed/magic_particle.png');
 const TD_AUDIO = {
   backgroundMusic: require('../../public/assets/audio/td_background_music.mp3'),
   correctNote: require('../../public/assets/audio/td_correct_note.mp3'),
@@ -119,6 +123,31 @@ function getSpawnDelay(tier) {
   return Math.max(MIN_SPAWN_DELAY, SPAWN_DELAY - (tier - 1) * 50);
 }
 
+const AnimatedStat = React.memo(function AnimatedStat({ value, style }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const previousValue = useRef(value);
+
+  useEffect(() => {
+    if (previousValue.current === value) return undefined;
+    previousValue.current = value;
+    scale.setValue(0.92);
+    const animation = Animated.spring(scale, {
+      toValue: 1,
+      damping: 8,
+      stiffness: 190,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [scale, value]);
+
+  return (
+    <Animated.Text style={[style, { transform: [{ scale }] }]}>
+      {value}
+    </Animated.Text>
+  );
+});
+
 function gameReducer(state, action) {
   switch (action.type) {
     case 'spawn':
@@ -129,7 +158,7 @@ function gameReducer(state, action) {
         mobs: [...state.mobs, state.queue[0]],
       };
     case 'projectile-launch':
-      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated)) return state;
+      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && !mob.leaking)) return state;
       return {
         ...state,
         mobs: state.mobs.map((mob) => mob.id === action.id ? { ...mob, pendingHit: true } : mob),
@@ -140,7 +169,7 @@ function gameReducer(state, action) {
         mobs: state.mobs.map((mob) => mob.id === action.id ? { ...mob, pendingHit: false } : mob),
       };
     case 'hit':
-      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && mob.pendingHit)) return state;
+      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && !mob.leaking && mob.pendingHit)) return state;
       return {
         ...state,
         mobs: state.mobs.map((mob) => mob.id === action.id
@@ -164,12 +193,12 @@ function gameReducer(state, action) {
       if (state.paused || state.hp <= 0) return state;
       return { ...state, combo: 0 };
     case 'leak':
-      if (state.paused || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && !mob.pendingHit)) return state;
+      if (state.paused || state.hp <= 0 || !state.mobs.some((mob) => mob.id === action.id && !mob.defeated && !mob.leaking && !mob.pendingHit)) return state;
       return {
         ...state,
         hp: Math.max(0, state.hp - 10),
         combo: 0,
-        mobs: state.mobs.filter((mob) => mob.id !== action.id),
+        mobs: state.mobs.map((mob) => mob.id === action.id ? { ...mob, leaking: true } : mob),
       };
     case 'next-wave':
       if (state.paused || state.hp <= 0 || state.queue.length || state.mobs.length) return state;
@@ -193,15 +222,18 @@ function gameReducer(state, action) {
   }
 }
 
-const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize, noteSize, renderOrder, fieldWidth, paused, registerMonsterRef, onReachTower }) {
+const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize, noteSize, renderOrder, fieldWidth, laneTop, paused, registerMonsterRef, onReachTower, onLeakAnimationComplete }) {
   const progress = useRef(new Animated.Value(0)).current;
   const progressValue = useRef(0);
   const reachedTower = useRef(false);
   const defeatScale = useRef(new Animated.Value(0.72)).current;
   const defeatOpacity = useRef(new Animated.Value(0.7)).current;
-  const noteOverflow = Math.max(0, (noteSize - monsterSize) / 2);
-  const startLeft = Math.max(fieldWidth * 0.03, noteOverflow);
-  const travelDistance = Math.max(0, fieldWidth - monsterSize - 16 - noteOverflow - startLeft);
+  const impactProgress = useRef(new Animated.Value(0)).current;
+  const walkProgress = useRef(new Animated.Value(0)).current;
+  const pianomanWidth = monsterSize * 1.2;
+  const startLeft = -monsterSize;
+  const destinationLeft = fieldWidth - pianomanWidth - monsterSize;
+  const travelDistance = Math.max(0, destinationLeft - startLeft);
   const noteImage = getNoteImage(mob.note);
   const movementStyle = {
     transform: [{
@@ -213,7 +245,7 @@ const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize
   };
 
   useEffect(() => {
-    if (paused || mob.defeated) {
+    if (paused || mob.defeated || mob.leaking) {
       progress.stopAnimation((value) => {
         progressValue.current = value;
       });
@@ -242,7 +274,45 @@ const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize
         progressValue.current = value;
       });
     };
-  }, [mob.defeated, mob.id, onReachTower, paused, progress]);
+  }, [mob.defeated, mob.id, mob.leaking, onReachTower, paused, progress]);
+
+  useEffect(() => {
+    if (paused || mob.defeated || mob.leaking) return undefined;
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(walkProgress, {
+        toValue: 1,
+        duration: 360,
+        easing: Easing.inOut(Easing.sin),
+        useNativeDriver: true,
+      }),
+      Animated.timing(walkProgress, {
+        toValue: 0,
+        duration: 360,
+        easing: Easing.inOut(Easing.sin),
+        useNativeDriver: true,
+      }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [mob.defeated, mob.leaking, paused, walkProgress]);
+
+  useEffect(() => {
+    if (!mob.leaking || paused) return undefined;
+
+    const animation = Animated.sequence([
+      Animated.delay(90),
+      Animated.timing(impactProgress, {
+        toValue: 1,
+        duration: 280,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start(({ finished }) => {
+      if (finished) onLeakAnimationComplete(mob.id);
+    });
+    return () => animation.stop();
+  }, [impactProgress, mob.id, mob.leaking, onLeakAnimationComplete, paused]);
 
   useEffect(() => {
     if (!mob.defeated) return undefined;
@@ -274,7 +344,7 @@ const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize
     <Animated.View style={[movementStyle, {
       position: 'absolute',
       left: startLeft,
-      top: '53%',
+      top: laneTop,
       width: monsterSize,
       height: monsterSize,
       alignItems: 'center',
@@ -294,6 +364,49 @@ const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize
         />
       ) : (
         <>
+          {mob.leaking && (
+            <>
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  top: monsterSize * 0.2,
+                  left: monsterSize * 0.2,
+                  width: monsterSize * 0.6,
+                  height: monsterSize * 0.6,
+                  borderRadius: monsterSize,
+                  backgroundColor: '#ffe89b',
+                  opacity: impactProgress.interpolate({ inputRange: [0, 0.2, 0.7, 1], outputRange: [0, 0.8, 0.45, 0] }),
+                  transform: [{ scale: impactProgress.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0.4, 1.35, 1.8] }) }],
+                }}
+              />
+              {[0, 1, 2, 3].map((index) => (
+                <Animated.Image
+                  key={`impact-particle-${index}`}
+                  source={IMPACT_PARTICLE}
+                  resizeMode="contain"
+                  style={{
+                    position: 'absolute',
+                    left: monsterSize * (index % 2 ? 0.3 : 0.55),
+                    top: monsterSize * (index < 2 ? 0.2 : 0.55),
+                    width: 16,
+                    height: 16,
+                    opacity: impactProgress.interpolate({ inputRange: [0, 0.2, 0.65, 1], outputRange: [0, 0.95, 0.6, 0] }),
+                    transform: [{
+                      translateX: impactProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, index % 2 ? 24 : -24],
+                      }),
+                    }, {
+                      translateY: impactProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, index < 2 ? -26 : 26],
+                      }),
+                    }],
+                  }}
+                />
+              ))}
+            </>
+          )}
           <View
             pointerEvents="none"
             style={{
@@ -331,7 +444,24 @@ const TravelingMonster = React.memo(function TravelingMonster({ mob, monsterSize
             ref={(node) => registerMonsterRef(mob.id, node)}
             source={MONSTERS[mob.monster]}
             resizeMode="contain"
-            style={{ width: monsterSize, height: monsterSize }}
+            style={{
+              width: monsterSize,
+              height: monsterSize,
+              opacity: mob.leaking ? impactProgress.interpolate({ inputRange: [0, 0.55, 0.72, 1], outputRange: [1, 1, 0.55, 0] }) : 1,
+              transform: [{
+                scale: mob.leaking
+                  ? impactProgress.interpolate({ inputRange: [0, 0.2, 0.52, 1], outputRange: [1, 0.88, 1.16, 0] })
+                  : 1,
+              }, {
+                translateY: mob.leaking
+                  ? 0
+                  : walkProgress.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }),
+              }, {
+                rotate: mob.leaking
+                  ? '0deg'
+                  : walkProgress.interpolate({ inputRange: [0, 1], outputRange: ['-1deg', '1deg'] }),
+              }],
+            }}
           />
         </>
       )}
@@ -517,8 +647,10 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
   const [feedback, setFeedback] = useState(null);
   const [projectiles, setProjectiles] = useState([]);
   const [damageIndicators, setDamageIndicators] = useState([]);
+  const [battlefieldSize, setBattlefieldSize] = useState({ width: 0, height: 0 });
   const feedbackOpacity = useRef(new Animated.Value(0)).current;
   const feedbackScale = useRef(new Animated.Value(0.85)).current;
+  const hpProgress = useRef(new Animated.Value(MAX_HP)).current;
   const scoreSaveStarted = useRef(false);
   const gameAreaRef = useRef(null);
   const battlefieldLayout = useRef({ x: 0, y: 0, width: 0, height: 0 });
@@ -539,19 +671,34 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
   audioSettingsRef.current = audioSettings;
   gameRef.current = game;
   const defeated = game.hp <= 0;
-  const keyboardHeight = Math.max(100, Math.min(160, height * 0.18));
+  const keyboardHeight = Math.max(88, Math.min(140, height * 0.18));
   const sharpHeight = keyboardHeight * 0.62;
+  const verticalPadding = Math.min(12, Math.max(4, height * 0.015));
   const monsterSize = Math.min(104, Math.max(72, width * 0.2));
+  const fieldHeight = battlefieldSize.height || Math.max(180, height * 0.45);
+  const laneTop = Math.max(0, Math.min(fieldHeight - monsterSize, fieldHeight * 0.86 - monsterSize));
   const noteSize = Math.round(Math.min(104, Math.max(102, width * 3.15)) * 1.75);
   const soundEffectsVolume = Math.max(0, Math.min(100, audioSettings?.soundEffectsVolume ?? 100));
   const soundEnabled = audioSettings?.soundEffects !== false && soundEffectsVolume > 0;
   const musicVolume = Math.max(0, Math.min(100, audioSettings?.musicVolume ?? 100));
   const musicEnabled = audioSettings?.music !== false && musicVolume > 0;
   const guideEnabled = audioSettings?.towerDefenseGuide !== false;
-  const currentTarget = game.mobs.find((mob) => !mob.defeated);
+  const fieldWidth = battlefieldSize.width || Math.min(width, 430) - 24;
+  const currentTarget = game.mobs.find((mob) => !mob.defeated && !mob.leaking);
   const keyboardTarget = currentTarget
     ? KEYBOARD_NOTES[NOTE_PITCH[currentTarget.note]]
     : undefined;
+
+  useEffect(() => {
+    const animation = Animated.timing(hpProgress, {
+      toValue: game.hp,
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [game.hp, hpProgress]);
 
   useEffect(() => {
     let active = true;
@@ -720,7 +867,7 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
     reachedTowerTargets.current.add(id);
     const latestGame = gameRef.current;
     const mob = latestGame.mobs.find((item) => item.id === id);
-    if (latestGame.paused || latestGame.hp <= 0 || !mob || mob.defeated) return;
+    if (latestGame.paused || latestGame.hp <= 0 || !mob || mob.defeated || mob.leaking) return;
     if (mob.pendingHit || pendingHitTargets.current.has(id)) return;
     if (leakedMonsterIds.current.has(id)) return;
 
@@ -730,23 +877,35 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
     dispatch({ type: 'leak', id });
 
     const layout = battlefieldLayout.current;
+    const monsterSize = Math.min(104, Math.max(72, width * 0.2));
+    const pianomanWidth = monsterSize * 0.95 * (512 / 405);
     setDamageIndicators((current) => [
       ...current.slice(-4),
       {
         id: `castle-damage-${++damageSequence.current}`,
         damage: 10,
-        x: layout.x + layout.width - 38,
-        y: layout.y + layout.height * 0.53,
+        x: layout.x + layout.width - pianomanWidth,
+        y: layout.y + layout.height * 0.86 - monsterSize / 2,
       },
     ]);
-  }, [playSound, monsterLeakPlayer]);
+  }, [playSound, monsterLeakPlayer, width]);
+
+  const handleLeakAnimationComplete = useCallback((id) => {
+    const timer = hitClearTimers.current.get(id);
+    if (timer) clearTimeout(timer);
+    hitClearTimers.current.delete(id);
+    pendingHitTargets.current.delete(id);
+    reachedTowerTargets.current.delete(id);
+    leakedMonsterIds.current.delete(id);
+    dispatch({ type: 'clear-hit', id });
+  }, []);
 
   const handleProjectileImpact = useCallback((projectile) => {
     setProjectiles((current) => current.filter((item) => item.id !== projectile.id));
     if (pendingHitTargets.current.get(projectile.targetId) !== projectile.id) return;
 
     const latestGame = gameRef.current;
-    const target = latestGame.mobs.find((mob) => mob.id === projectile.targetId && !mob.defeated);
+    const target = latestGame.mobs.find((mob) => mob.id === projectile.targetId && !mob.defeated && !mob.leaking);
     if (latestGame.paused || latestGame.hp <= 0 || !target) {
       pendingHitTargets.current.delete(projectile.targetId);
       dispatch({ type: 'projectile-cancel', id: projectile.targetId });
@@ -805,7 +964,7 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
         }
         const latestGame = gameRef.current;
         const targetStillActive = latestGame.mobs.some(
-          (mob) => mob.id === launch.targetId && !mob.defeated
+          (mob) => mob.id === launch.targetId && !mob.defeated && !mob.leaking
         );
         if (latestGame.paused || latestGame.hp <= 0 || !targetStillActive) {
           pendingHitTargets.current.delete(launch.targetId);
@@ -969,18 +1128,37 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
     return () => subscription.remove();
   }, [onNavigate]);
 
-  return (
-    <ImageBackground
-      source={BACKGROUND}
-      resizeMode="stretch"
-      imageStyle={{ width: '100%', height: '100%' }}
-      style={{ flex: 1, width: '100%' }}
+    return (
+    <View
+      style={{
+        flex: 1,
+        width: '100%',
+        backgroundColor: '#070d27',
+      }}
     >
-      <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1 }}>
-        <View ref={gameAreaRef} style={{ flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center', paddingHorizontal: 12, paddingTop: 16, paddingBottom: 12, alignItems: 'center' }}>
-          <View style={{ width: '100%', minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <TowerDefenseBackground paused={game.paused || defeated} />
+
+      {
+      }
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 0,
+        }}
+      >
+        <BattlefieldGround paused={game.paused || defeated} />
+      </View>
+
+      <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, zIndex: 1 }}>
+        <View ref={gameAreaRef} style={{ flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center', paddingHorizontal: 12, paddingTop: verticalPadding, paddingBottom: verticalPadding, alignItems: 'center' }}>
+          <View style={{ width: '100%', minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <View style={{ flex: 1, height: 28, overflow: 'hidden', borderWidth: 2, borderColor: '#fff', borderRadius: 8, backgroundColor: 'rgba(4,15,44,0.94)' }}>
-              <View style={{ width: `${game.hp}%`, height: '100%', backgroundColor: '#6be19b' }} />
+              <Animated.View style={{ width: hpProgress.interpolate({ inputRange: [0, MAX_HP], outputRange: ['0%', '100%'] }), height: '100%', backgroundColor: '#6be19b' }} />
               <Text style={{ position: 'absolute', top: 0, left: 0, right: 0, color: '#fff', textAlign: 'center', fontSize: 15, fontWeight: '900', textShadowColor: '#000', textShadowRadius: 4 }}>
                 CASTLE HP  {game.hp}/100
               </Text>
@@ -1012,9 +1190,9 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
             width: '100%',
             flexDirection: 'row',
             alignItems: 'stretch',
-            marginTop: 5,
-            marginBottom: 2,
-            padding: 5,
+            marginTop: 3,
+            marginBottom: 1,
+            padding: 4,
             borderWidth: 1,
             borderColor: 'rgba(240,215,109,0.75)',
             borderRadius: 10,
@@ -1022,36 +1200,45 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
           }}>
             <View style={{ flex: 0.8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
               <Text style={{ color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 }}>WAVE</Text>
-              <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '900', marginTop: 1 }}>{game.tier}</Text>
+              <AnimatedStat value={game.tier} style={{ color: COLORS.text, fontSize: 17, fontWeight: '900', marginTop: 1 }} />
             </View>
             <View style={{ width: 1, marginVertical: 3, backgroundColor: 'rgba(255,255,255,0.22)' }} />
             <View style={{ flex: 1.1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
               <Text style={{ color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 }}>MONSTERS</Text>
-              <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '800', marginTop: 2, textAlign: 'center' }}>
-                {game.mobs.length} field · {game.queue.length} next
-              </Text>
+              <AnimatedStat
+                value={`${game.mobs.length} field · ${game.queue.length} next`}
+                style={{ color: COLORS.text, fontSize: 12, fontWeight: '800', marginTop: 2, textAlign: 'center' }}
+              />
             </View>
             <View style={{ width: 1, marginVertical: 3, backgroundColor: 'rgba(255,255,255,0.22)' }} />
             <View style={{ flex: 1.1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
               <Text style={{ color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 }}>SCORE / BEST</Text>
-              <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: '900', marginTop: 2, textAlign: 'center' }}>
-                {game.score} / {personalBest === null ? '—' : personalBest}
-              </Text>
+              <AnimatedStat
+                value={`${game.score} / ${personalBest === null ? '—' : personalBest}`}
+                style={{ color: COLORS.text, fontSize: 12, fontWeight: '900', marginTop: 2, textAlign: 'center' }}
+              />
             </View>
           </View>
 
           <View
             onLayout={({ nativeEvent }) => {
               battlefieldLayout.current = nativeEvent.layout;
+              setBattlefieldSize((current) => (
+                current.width === nativeEvent.layout.width && current.height === nativeEvent.layout.height
+                  ? current
+                  : { width: nativeEvent.layout.width, height: nativeEvent.layout.height }
+              ));
             }}
             style={{
-            flex: 1,
-            width: '100%',
-            minHeight: defeated ? 0 : 180,
-            overflow: 'hidden',
-            marginTop: 4,
-            marginBottom: 8,
-          }}>
+  flex: 1,
+  width: '100%',
+  alignSelf: 'stretch',
+  minHeight: 0,
+  overflow: 'hidden',
+  marginTop: 2,
+  marginBottom: 2,
+}}>
+            <PianomanDestination monsterSize={monsterSize} laneTop={laneTop} paused={game.paused || defeated} />
             {game.mobs.map((mob, index) => {
               return (
                 <TravelingMonster
@@ -1060,10 +1247,12 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
                   monsterSize={monsterSize}
                   noteSize={noteSize}
                   renderOrder={game.mobs.length - index}
-                  fieldWidth={Math.min(width, 430) - 24}
-                  paused={game.paused || defeated}
+                  fieldWidth={fieldWidth}
+                  laneTop={laneTop}
+                  paused={game.paused || (defeated && !mob.leaking)}
                   registerMonsterRef={registerMonsterRef}
                   onReachTower={handleMonsterReachedTower}
+                  onLeakAnimationComplete={handleLeakAnimationComplete}
                 />
               );
             })}
@@ -1097,7 +1286,7 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
           </View>
 
           {guideEnabled && (
-            <Text accessibilityLiveRegion="polite" style={{ color: COLORS.primary, fontWeight: '800', marginBottom: 6, textShadowColor: '#071136', textShadowRadius: 3 }}>
+            <Text accessibilityLiveRegion="polite" style={{ color: COLORS.primary, fontWeight: '800', marginBottom: 3, textShadowColor: '#071136', textShadowRadius: 3 }}>
               {currentTarget ? `Play ${keyboardTarget} to defend the castle` : 'Get ready for the next monster'}
             </Text>
           )}
@@ -1219,7 +1408,7 @@ function TowerDefense({ onNavigate, audioSettings, onAudioSettingsChange }) {
           onDismiss={() => setSavePromptResult(null)}
         />
       )}
-    </ImageBackground>
+    </View>
   );
 }
 

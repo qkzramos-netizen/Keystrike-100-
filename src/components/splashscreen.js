@@ -13,7 +13,7 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 
 const splash = require('../../public/assets/splashscreen.gif');
-const musicBackground = require('../../public/assets/glowing-musical-pentagram-background-with-sound-notes_1017-31220.avif');
+const musicBackground = require('../../public/assets/background2.png');
 const splashscreenbg = require('../../public/appmusic/splashscreenbg.mp3');
 const splashscreenlogo = require('../../public/appmusic/splashscreenlogo.mp3');
 const CIRCLE_SIZE = 280;
@@ -257,7 +257,7 @@ export default function SplashScreen({ onNavigate, playButtonSound = () => {} })
         pointerEvents="none"
         style={[
           StyleSheet.absoluteFillObject,
-          { backgroundColor: 'rgba(1, 1, 58, 0.78)' },
+          { backgroundColor: 'rgba(0, 0, 32, 0.8)' },
         ]}
       />
 

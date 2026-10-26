@@ -212,7 +212,7 @@ export function Page({
       {backgroundImage && (
         <ImageBackground
           source={backgroundImage}
-          resizeMode="cover"
+          resizeMode="contain"
           style={{
             position: 'absolute',
             top: 0,
